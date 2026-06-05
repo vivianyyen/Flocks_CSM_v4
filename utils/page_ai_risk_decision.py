@@ -57,7 +57,7 @@ def _render_lstm(forecaster: LSTMForecaster):
         r2_val = card.get("r2", "N/A")
         r2_str = f"{r2_val:.4f}" if isinstance(r2_val, float) else str(r2_val)
         r2_colour = "#06D6A0" if isinstance(r2_val, float) and r2_val >= 0.7 else "#FF8C42" if isinstance(r2_val, float) and r2_val >= 0.4 else "#FF4B4B"
-        _kpi("R² Score", r2_str, "1.0 = perfect fit", r2_colour)
+        _kpi("R² Score", r2_str, "Validation set (30%)", r2_colour)
 
     # Build forecast dataframe
     fdf = forecaster.forecast_df()
@@ -71,51 +71,80 @@ def _render_lstm(forecaster: LSTMForecaster):
     # ── Forecast chart ────────────────────────────────────────────────────────
     fig = go.Figure()
 
+    # Historical actuals
     fig.add_trace(go.Scatter(
         x=hist["date"], y=hist["predicted_count"],
         name="Historical Actuals",
-        mode="lines",
+        mode="lines+markers",
         line=dict(color="#7C3AED", width=2),
+        marker=dict(size=4),
     ))
 
-    # Uncertainty band (shaded area)
+    # Connector dot — bridge between last actual and first forecast
+    if not hist.empty and not future.empty:
+        bridge_x = [hist["date"].iloc[-1], future["date"].iloc[0]]
+        bridge_y = [hist["predicted_count"].iloc[-1], future["predicted_count"].iloc[0]]
+        fig.add_trace(go.Scatter(
+            x=bridge_x, y=bridge_y,
+            mode="lines",
+            line=dict(color="#FF8C42", width=1.5, dash="dot"),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+
+    # Uncertainty band — future only
     fig.add_trace(go.Scatter(
         x=pd.concat([future["date"], future["date"][::-1]]),
         y=pd.concat([future["upper_bound"], future["lower_bound"][::-1]]),
         fill="toself",
-        fillcolor="rgba(255,140,66,0.15)",
+        fillcolor="rgba(255,140,66,0.18)",
         line=dict(color="rgba(0,0,0,0)"),
         name="Uncertainty Band",
+        hoverinfo="skip",
     ))
 
-    # Forecast line
+    # Forecast line — clearly in the future
     fig.add_trace(go.Scatter(
         x=future["date"], y=future["predicted_count"],
-        name="LSTM Forecast",
+        name="LSTM Forecast (Future)",
         mode="lines+markers",
         line=dict(color="#FF8C42", width=2.5, dash="dash"),
-        marker=dict(size=8, symbol="diamond"),
+        marker=dict(size=10, symbol="diamond", color="#FF8C42",
+                    line=dict(color="#fff", width=1.5)),
     ))
 
-    # Vertical divider
+    # Vertical divider at forecast boundary
     if not hist.empty and not future.empty:
         fig.add_vline(
-            x=str(hist["date"].iloc[-1]),
-            line_dash="dot", line_color="#555",
-            annotation_text="Forecast starts →",
-            annotation_font_color="#9CA3AF",
+            x=str(future["date"].iloc[0]),
+            line_dash="dash", line_color="#888", line_width=1.5,
+            annotation_text=" Forecast →",
+            annotation_font_color="#FF8C42",
+            annotation_font_size=13,
+            annotation_position="top left",
+        )
+
+    # Shaded background for forecast region
+    if not future.empty:
+        fig.add_vrect(
+            x0=str(future["date"].iloc[0]),
+            x1=str(future["date"].iloc[-1]),
+            fillcolor="rgba(255,140,66,0.05)",
+            layer="below", line_width=0,
         )
 
     fig.update_layout(
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        title="Daily Incident Count — Historical + LSTM Forecast",
+        title="Daily Incident Count — Historical Actuals + LSTM Future Forecast",
         xaxis_title="Date",
         yaxis_title="Incident Count",
-        legend=dict(orientation="h", y=1.1),
-        margin=dict(t=60, b=30),
+        legend=dict(orientation="h", y=1.12),
+        margin=dict(t=70, b=30),
         hovermode="x unified",
+        xaxis=dict(showgrid=True, gridcolor="#2A2D3A"),
+        yaxis=dict(showgrid=True, gridcolor="#2A2D3A", rangemode="tozero"),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -138,13 +167,22 @@ def _render_lstm(forecaster: LSTMForecaster):
         | Parameter | Value |
         |---|---|
         | Architecture | `LSTM({card['hidden_units']}) → Dense(32, ReLU) → Dense({forecaster.forecast_days})` |
-        | Input | Last **{forecaster.lookback}** daily incident counts |
+        | Input Window | Last **{forecaster.lookback}** daily incident counts |
         | Output | Next **{forecaster.forecast_days}** daily incident counts |
         | Optimiser | `{card['optimiser']}` |
         | Loss Function | `{card['loss_function']}` |
         | Training Epochs | `{card['training_epochs']}` |
-        | Training Days | `{card['training_days']} days of data` |
+        | Total Days | `{card['training_days']} days of data` |
+        | Train Split | `70% of sliding windows` |
+        | Validation Split | `30% of sliding windows` |
+        | R² (Validation) | `{card.get('r2', 'N/A')}` |
         | Status | `{card['status']}` |
+
+        **Train / Validation Split:**
+        The available sliding windows are split 70% for training and 30% for
+        validation. The R² score is computed on the **validation set only**
+        (the 30% the model never saw during training), giving an honest measure
+        of how well the LSTM generalises to unseen data.
 
         **How it works:**
         The LSTM (Long Short-Term Memory) network learns temporal patterns in
@@ -153,7 +191,7 @@ def _render_lstm(forecaster: LSTMForecaster):
         controlled by three gates — Forget, Input, and Output — each with
         learnable weight matrices trained via backpropagation through time (BPTT).
         The final hidden state is passed through two Dense layers to produce the
-        {forecaster.forecast_days}-day forecast.
+        {forecaster.forecast_days}-day future forecast.
         """)
 
 
@@ -182,7 +220,6 @@ def page_ai_risk_decision(get_data_fn):
         st.markdown("### ⚙️ LSTM Settings")
         retrain       = st.button("🔄 Retrain LSTM", use_container_width=True)
         forecast_days = st.slider("Forecast horizon (days)", 3, 14, 7)
-        lookback      = st.slider("Lookback window (days)", 7, 30, 7)
         st.markdown("---")
         st.markdown(
             "<small style='color:#6B7280;'>Model trains automatically on first load.</small>",
@@ -200,10 +237,10 @@ def page_ai_risk_decision(get_data_fn):
         return
 
     # ── Train LSTM ────────────────────────────────────────────────────────────
-    cache_key = f"lstm_{len(df_raw)}_{forecast_days}_{lookback}"
+    cache_key = f"lstm_{len(df_raw)}_{forecast_days}"
     if retrain or cache_key not in st.session_state:
         with st.spinner("🧠 Training LSTM…"):
-            fc = LSTMForecaster(lookback=lookback, forecast_days=forecast_days)
+            fc = LSTMForecaster(forecast_days=forecast_days)
             fc.fit(df_raw)
             st.session_state[cache_key]      = fc
             st.session_state["lstm_current"] = fc

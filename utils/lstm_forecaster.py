@@ -260,9 +260,11 @@ class LSTMForecaster:
         self._history: Optional[pd.Series] = None
         self._last_date: Optional[pd.Timestamp] = None
         self._train_losses: List[float] = []
-        self._r2           = None
-        self._mape         = None
-        self._trained      = False
+        self._r2              = None
+        self._mape            = None
+        self._n_train_windows = 0
+        self._n_val_windows   = 0
+        self._trained         = False
         self.n_train_days  = 0
 
     # ── Data preparation ──────────────────────────────────────────────────────
@@ -345,43 +347,52 @@ class LSTMForecaster:
             self._trained = False
             return self
 
-        self._history  = series
+        self._history   = series
         self._last_date = series.index[-1]
 
-        arr    = self._scale(series.values.astype(float))
-        X, y   = self._make_windows(arr)
+        arr  = self._scale(series.values.astype(float))
+        X, y = self._make_windows(arr)
 
         if len(X) < 2:
             self._trained = False
             return self
+
+        # ── 70 / 30 train-validation split ────────────────────────────────────
+        split        = max(1, int(len(X) * 0.70))
+        X_train, y_train = X[:split], y[:split]
+        X_val,   y_val   = X[split:], y[split:]
+
+        self._n_train_windows = len(X_train)
+        self._n_val_windows   = len(X_val)
 
         self._net = _LSTMNetwork(
             input_size  = 1,
             hidden_size = self.hidden_size,
             output_size = self.forecast_days,
         )
-        self._train_losses = self._net.fit(X, y)
+        self._train_losses = self._net.fit(X_train, y_train)
         self._trained      = True
         self.n_train_days  = len(series)
 
-        # ── Compute R² and MAPE on training windows ───────────────────────────
-        y_true_all, y_pred_all = [], []
-        for i in range(len(X)):
-            pred = self._net.predict_one(X[i])
-            y_true_all.extend(self._unscale(y[i]).tolist())
-            y_pred_all.extend(self._unscale(pred).tolist())
+        # ── R² on validation set (30%) ────────────────────────────────────────
+        def _collect(Xb, yb):
+            yt, yp = [], []
+            for i in range(len(Xb)):
+                pred = self._net.predict_one(Xb[i])
+                yt.extend(self._unscale(yb[i]).tolist())
+                yp.extend(self._unscale(pred).tolist())
+            return np.array(yt), np.array(yp)
 
-        y_true_arr = np.array(y_true_all)
-        y_pred_arr = np.array(y_pred_all)
+        if len(X_val) > 0:
+            yt, yp = _collect(X_val, y_val)
+        else:
+            yt, yp = _collect(X_train, y_train)   # fallback if too little data
 
-        # R² = 1 - SS_res / SS_tot
-        ss_res = np.sum((y_true_arr - y_pred_arr) ** 2)
-        ss_tot = np.sum((y_true_arr - y_true_arr.mean()) ** 2)
-        self._r2 = float(1 - ss_res / ss_tot) if ss_tot > 0 else 0.0
-
-        # MAPE = mean(|actual - predicted| / max(|actual|, 1)) × 100
-        denom = np.maximum(np.abs(y_true_arr), 1)
-        self._mape = float(np.mean(np.abs(y_true_arr - y_pred_arr) / denom) * 100)
+        ss_res       = np.sum((yt - yp) ** 2)
+        ss_tot       = np.sum((yt - yt.mean()) ** 2)
+        self._r2     = float(1 - ss_res / ss_tot) if ss_tot > 0 else 0.0
+        denom        = np.maximum(np.abs(yt), 1)
+        self._mape   = float(np.mean(np.abs(yt - yp) / denom) * 100)
 
         return self
 
