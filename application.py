@@ -1678,7 +1678,7 @@ pg = st.navigation(
         st.Page(page_cyber_news,        title="Cyber News",          icon="📰", default=True),
         st.Page(page_ransomware,        title="Ransomware Live",     icon="🔴"),
         st.Page(page_ai_analyst,        title="AI Analyst",          icon="🤖"),
-        st.Page(page_ai_risk_decision,  title="AI Risk Decision",    icon="🧠"),
+        st.Page(page_ai_risk_decision,  title="LSTM Forecasting",    icon="🧠"),
     ],
     position="top",
 )

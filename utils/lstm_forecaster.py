@@ -260,6 +260,8 @@ class LSTMForecaster:
         self._history: Optional[pd.Series] = None
         self._last_date: Optional[pd.Timestamp] = None
         self._train_losses: List[float] = []
+        self._r2           = None
+        self._mape         = None
         self._trained      = False
         self.n_train_days  = 0
 
@@ -361,6 +363,26 @@ class LSTMForecaster:
         self._train_losses = self._net.fit(X, y)
         self._trained      = True
         self.n_train_days  = len(series)
+
+        # ── Compute R² and MAPE on training windows ───────────────────────────
+        y_true_all, y_pred_all = [], []
+        for i in range(len(X)):
+            pred = self._net.predict_one(X[i])
+            y_true_all.extend(self._unscale(y[i]).tolist())
+            y_pred_all.extend(self._unscale(pred).tolist())
+
+        y_true_arr = np.array(y_true_all)
+        y_pred_arr = np.array(y_pred_all)
+
+        # R² = 1 - SS_res / SS_tot
+        ss_res = np.sum((y_true_arr - y_pred_arr) ** 2)
+        ss_tot = np.sum((y_true_arr - y_true_arr.mean()) ** 2)
+        self._r2 = float(1 - ss_res / ss_tot) if ss_tot > 0 else 0.0
+
+        # MAPE = mean(|actual - predicted| / max(|actual|, 1)) × 100
+        denom = np.maximum(np.abs(y_true_arr), 1)
+        self._mape = float(np.mean(np.abs(y_true_arr - y_pred_arr) / denom) * 100)
+
         return self
 
     # ── Prediction ────────────────────────────────────────────────────────────
@@ -433,5 +455,7 @@ class LSTMForecaster:
             "training_epochs":  EPOCHS,
             "training_days":    self.n_train_days,
             "final_mse":        round(float(final_loss), 6) if final_loss else "N/A",
+            "r2":               round(self._r2,   4) if self._r2   is not None else "N/A",
+            "mape":             round(self._mape, 2) if self._mape is not None else "N/A",
             "status":           "Trained ✅" if self._trained else "Not trained ❌",
         }
