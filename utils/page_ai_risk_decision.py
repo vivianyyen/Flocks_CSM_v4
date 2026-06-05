@@ -46,7 +46,7 @@ def _render_lstm(forecaster: LSTMForecaster):
     card = forecaster.model_card()
 
     # KPI row — architecture info only, no R2/MAPE
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         _kpi("Model", "LSTM", f"Hidden: {card['hidden_units']} units", C["accent"])
     with c2:
@@ -58,11 +58,6 @@ def _render_lstm(forecaster: LSTMForecaster):
         r2_str = f"{r2_val:.4f}" if isinstance(r2_val, float) else str(r2_val)
         r2_colour = "#06D6A0" if isinstance(r2_val, float) and r2_val >= 0.7 else "#FF8C42" if isinstance(r2_val, float) and r2_val >= 0.4 else "#FF4B4B"
         _kpi("R² Score", r2_str, "1.0 = perfect fit", r2_colour)
-    with c5:
-        mape_val = card.get("mape", "N/A")
-        mape_str = f"{mape_val:.2f}%" if isinstance(mape_val, float) else str(mape_val)
-        mape_colour = "#06D6A0" if isinstance(mape_val, float) and mape_val <= 15 else "#FF8C42" if isinstance(mape_val, float) and mape_val <= 30 else "#FF4B4B"
-        _kpi("MAPE", mape_str, "Lower is better", mape_colour)
 
     # Build forecast dataframe
     fdf = forecaster.forecast_df()
