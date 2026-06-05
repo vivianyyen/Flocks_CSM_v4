@@ -38,12 +38,12 @@ import pandas as pd
 from typing import Dict, List, Optional, Tuple
 
 # ── Hyperparameters ───────────────────────────────────────────────────────────
-LOOKBACK        = 14    # days of history used as input window
+LOOKBACK        = 7     # days of history used as input window
 FORECAST_DAYS   = 7     # days ahead to predict
 HIDDEN_SIZE     = 64    # LSTM hidden units
 LEARNING_RATE   = 0.01
 EPOCHS          = 200
-MIN_HISTORY     = 20    # minimum days of data needed to train
+MIN_HISTORY     = 10    # minimum days of data needed to train
 RANDOM_STATE    = 42
 
 
@@ -266,18 +266,41 @@ class LSTMForecaster:
     # ── Data preparation ──────────────────────────────────────────────────────
 
     def _prepare_series(self, df: pd.DataFrame) -> Optional[pd.Series]:
-        """Aggregate df to a daily incident count series."""
+        """
+        Aggregate df to a daily incident count series.
+        Handles all Supabase timestamp formats including timezone-aware
+        strings like '2025-05-08T14:32:00+00:00' and plain dates.
+        """
         date_col = next(
-            (c for c in ("incident_date", "publication_date", "created_at",
-                         "published", "discovered")
-             if c in df.columns), None
+            (c for c in (
+                "incident_date", "publication_date", "created_at",
+                "published", "discovered", "date", "timestamp",
+            ) if c in df.columns),
+            None,
         )
         if date_col is None:
             return None
 
         s = df.copy()
-        s["_date"] = pd.to_datetime(s[date_col], errors="coerce", utc=True).dt.date
+
+        def _parse_date(val):
+            try:
+                ts = pd.to_datetime(val, utc=True)
+                if pd.isna(ts):
+                    return None
+                return ts.normalize().date()
+            except Exception:
+                try:
+                    ts = pd.to_datetime(val)
+                    if pd.isna(ts):
+                        return None
+                    return ts.date()
+                except Exception:
+                    return None
+
+        s["_date"] = s[date_col].apply(_parse_date)
         s = s.dropna(subset=["_date"])
+
         if s.empty:
             return None
 
@@ -290,7 +313,6 @@ class LSTMForecaster:
         counts["_date"] = pd.to_datetime(counts["_date"])
         counts = counts.set_index("_date")["count"]
 
-        # Fill missing dates with 0
         full_idx = pd.date_range(counts.index.min(), counts.index.max(), freq="D")
         counts   = counts.reindex(full_idx, fill_value=0)
         return counts

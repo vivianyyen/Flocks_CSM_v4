@@ -522,7 +522,7 @@ def page_ai_risk_decision(get_data_fn):
         retrain      = st.button("🔄 Retrain LSTM", use_container_width=True,
                                  help="Re-trains the LSTM on current data")
         forecast_days = st.slider("Forecast horizon (days)", 3, 14, 7)
-        lookback      = st.slider("LSTM lookback window (days)", 7, 30, 14)
+        lookback      = st.slider("LSTM lookback window (days)", 7, 30, 7)
         top_n         = st.slider("Incidents to analyse", 50, 500, 200, 50)
         st.markdown("---")
         st.markdown(
