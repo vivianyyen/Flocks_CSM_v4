@@ -23,7 +23,7 @@ from utils.charts import (
     render_source_breakdown,
 )
 from utils.chatbot import chatbot_ui
-from utils.risk_scorer import score_dataframe   # ← from application.py (v1)
+from utils.risk_scorer import score_dataframe   # ← rule-based baseline scorer
 from utils.page_ai_risk_decision import page_ai_risk_decision as _page_ai_risk_raw
 
 TZ_MY = ZoneInfo("Asia/Kuala_Lumpur")

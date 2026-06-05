@@ -1,26 +1,26 @@
 """
-pages/page_ai_risk_decision.py
+utils/page_ai_risk_decision.py
 ────────────────────────────────────────────────────────────────────────────────
-AI Risk Decision Centre
-────────────────────────
-Integrates three analytical layers:
+AI Risk Decision Centre — v5
+─────────────────────────────
+Three integrated layers:
 
-  Layer 1 — Deep Learning (DL) Classifier
-    TF-IDF → MLP neural network trained on live Supabase incident data.
-    Predicts severity (Critical/High/Medium/Low) + confidence score.
+  Layer 1 — Deep Learning (LSTM) Incident Forecasting
+    Predicts future daily incident volumes for the next 7 days using an
+    LSTM recurrent neural network trained on historical Supabase data.
 
   Layer 2 — Quantitative Risk Analysis
-    Likelihood × Impact matrix, Monte Carlo uncertainty simulation (N=1000),
-    sector-level composite risk index, and risk trend over time.
+    Likelihood × Impact risk matrix, Monte Carlo simulation (N=1,000),
+    sector composite risk index, and rolling risk trend.
 
-  Layer 3 — Multi-Criteria Decision Analysis (MCDA)
-    AHP (Analytic Hierarchy Process) + TOPSIS to rank incidents and generate
-    prioritised response recommendations for security analysts.
+  Layer 3 — Decision Analysis (AHP)
+    Analytic Hierarchy Process prioritises current incidents for response
+    using expert-defined criteria weights and Saaty's eigenvector method.
 
 Aligned to Malaysia NAIO Action Plan 2026–2030:
-  • Area 3: Acceleration of AI Technology Adaptation
-  • Area 5: AI Impact Study for Government
-  • Area 4: AI Code of Ethics (explainability, transparency)
+  Area 3 — Acceleration of AI Technology Adaptation
+  Area 5 — AI Impact Study for Government
+  Area 4 — AI Code of Ethics (transparent, explainable scoring)
 ────────────────────────────────────────────────────────────────────────────────
 """
 
@@ -29,60 +29,50 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
-# ── Internal modules ──────────────────────────────────────────────────────────
-from utils.dl_classifier  import DLClassifier
-from utils.risk_analysis  import (
+from utils.lstm_forecaster  import LSTMForecaster
+from utils.risk_analysis    import (
     enrich_with_risk,
     compute_sector_risk_index,
     compute_risk_trend,
-    risk_matrix_quadrant,
-    monte_carlo_one,
 )
 from utils.decision_analysis import (
-    prioritise,
+    run_ahp,
     ahp_weights,
     consistency_ratio,
     weight_table,
-    run_ahp,
-    run_topsis,
 )
 
 # ── Colour palette ────────────────────────────────────────────────────────────
-COLOURS = {
+C = {
     "Critical": "#FF4B4B",
     "High":     "#FF8C42",
     "Medium":   "#FFD166",
     "Low":      "#06D6A0",
+    "Monitor":  "#06D6A0",
     "Extreme":  "#FF4B4B",
     "Moderate": "#FFD166",
-    "bg":       "#0E1117",
     "card":     "#1A1D27",
     "accent":   "#7C3AED",
 }
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  HELPER WIDGETS
-# ═════════════════════════════════════════════════════════════════════════════
+# ── Tiny helpers ──────────────────────────────────────────────────────────────
 
-def _metric_card(title: str, value: str, delta: str = "", colour: str = "#7C3AED"):
+def _kpi(title, value, sub="", colour="#7C3AED"):
     st.markdown(
-        f"""
-        <div style="background:{COLOURS['card']};border-left:4px solid {colour};
-                    padding:16px 20px;border-radius:8px;margin-bottom:4px;">
+        f"""<div style="background:{C['card']};border-left:4px solid {colour};
+            padding:16px 20px;border-radius:8px;margin-bottom:4px;">
             <div style="font-size:11px;color:#9CA3AF;text-transform:uppercase;
                         letter-spacing:.08em;">{title}</div>
-            <div style="font-size:26px;font-weight:700;color:#F9FAFB;
-                        line-height:1.2;">{value}</div>
-            <div style="font-size:12px;color:#6B7280;">{delta}</div>
+            <div style="font-size:26px;font-weight:700;color:#F9FAFB;">{value}</div>
+            <div style="font-size:12px;color:#6B7280;">{sub}</div>
         </div>""",
         unsafe_allow_html=True,
     )
 
 
-def _section(title: str, icon: str = ""):
+def _section(title, icon=""):
     st.markdown(
         f"<h3 style='color:#E5E7EB;margin-top:2rem;'>{icon} {title}</h3>",
         unsafe_allow_html=True,
@@ -90,166 +80,189 @@ def _section(title: str, icon: str = ""):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  LAYER 1 — DEEP LEARNING PANEL
+#  LAYER 1 — LSTM FORECASTING
 # ═════════════════════════════════════════════════════════════════════════════
 
-def _render_dl_panel(clf: DLClassifier, df_enriched: pd.DataFrame):
-    _section("Deep Learning Severity Classifier", "🧠")
+def _render_lstm_panel(forecaster: LSTMForecaster, df_raw: pd.DataFrame):
+    _section("LSTM Incident Volume Forecasting", "📈")
 
-    card = clf.model_card()
+    card = forecaster.model_card()
+
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        _metric_card("Architecture", "MLP Neural Net", "TF-IDF → 128 → 64 → 4",
-                     COLOURS["accent"])
+        _kpi("Model", "LSTM", f"Hidden: {card['hidden_units']} units", C["accent"])
     with c2:
-        _metric_card("Training Rows", str(card["training_rows"]),
-                     "Silver labels from rule-based scorer", "#06D6A0")
+        _kpi("Input Window", card["lookback_window"], "Days of history used", "#06D6A0")
     with c3:
-        acc = card["val_accuracy"]
-        _metric_card("Validation Accuracy",
-                     f"{acc*100:.1f}%" if isinstance(acc, float) else str(acc),
-                     "20% held-out validation set", "#FF8C42")
+        _kpi("Forecast Horizon", card["forecast_horizon"], "Days ahead predicted", "#FF8C42")
     with c4:
-        _metric_card("Vocab Size", f"{card['vocab_size']:,}",
-                     "Unigrams + bigrams", "#FFD166")
+        _kpi("Training MSE", str(card["final_mse"]), "Final training loss", "#FFD166")
 
-    # Confidence distribution
-    if "dl_confidence" in df_enriched.columns and "dl_label" in df_enriched.columns:
-        col_a, col_b = st.columns(2)
+    fdf = forecaster.forecast_df()
+    if fdf.empty:
+        st.warning("Not enough historical data to forecast (need ≥ 20 days).")
+        return
 
-        with col_a:
-            fig = px.histogram(
-                df_enriched, x="dl_confidence", color="dl_label",
-                nbins=25, barmode="overlay",
-                color_discrete_map=COLOURS,
-                title="Prediction Confidence Distribution",
-                labels={"dl_confidence": "Confidence", "dl_label": "Severity"},
-                template="plotly_dark",
-            )
-            fig.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                legend_title_text="", margin=dict(t=40, b=20),
-            )
-            st.plotly_chart(fig, use_container_width=True)
+    # Trim to last 60 days + forecast for readability
+    hist   = fdf[~fdf["is_forecast"]].tail(60)
+    future = fdf[fdf["is_forecast"]]
 
-        with col_b:
-            label_counts = df_enriched["dl_label"].value_counts().reset_index()
-            label_counts.columns = ["Severity", "Count"]
-            fig2 = px.pie(
-                label_counts, names="Severity", values="Count",
-                color="Severity", color_discrete_map=COLOURS,
-                title="DL Severity Distribution",
-                hole=0.45, template="plotly_dark",
-            )
-            fig2.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                margin=dict(t=40, b=20),
-            )
-            st.plotly_chart(fig2, use_container_width=True)
+    fig = go.Figure()
+
+    # Historical actual line
+    fig.add_trace(go.Scatter(
+        x=hist["date"], y=hist["predicted_count"],
+        name="Historical Actuals",
+        mode="lines",
+        line=dict(color="#7C3AED", width=2),
+    ))
+
+    # Forecast uncertainty band
+    fig.add_trace(go.Scatter(
+        x=pd.concat([future["date"], future["date"][::-1]]),
+        y=pd.concat([future["upper_bound"], future["lower_bound"][::-1]]),
+        fill="toself",
+        fillcolor="rgba(255,140,66,0.15)",
+        line=dict(color="rgba(0,0,0,0)"),
+        name="Uncertainty Band",
+        showlegend=True,
+    ))
+
+    # Forecast line
+    fig.add_trace(go.Scatter(
+        x=future["date"], y=future["predicted_count"],
+        name="LSTM Forecast",
+        mode="lines+markers",
+        line=dict(color="#FF8C42", width=2.5, dash="dash"),
+        marker=dict(size=8, symbol="diamond"),
+    ))
+
+    # Divider line
+    if not hist.empty and not future.empty:
+        fig.add_vline(
+            x=str(hist["date"].iloc[-1]),
+            line_dash="dot", line_color="#555",
+            annotation_text="Forecast starts →",
+            annotation_font_color="#9CA3AF",
+        )
+
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        title="Daily Incident Count — Historical + 7-Day LSTM Forecast",
+        xaxis_title="Date",
+        yaxis_title="Incident Count",
+        legend=dict(orientation="h", y=1.1),
+        margin=dict(t=60, b=30),
+        hovermode="x unified",
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Forecast table
+    _section("Forecast Details", "📋")
+    ft = future[["date", "predicted_count", "lower_bound", "upper_bound"]].copy()
+    ft["date"]            = ft["date"].dt.strftime("%a %d %b %Y")
+    ft["predicted_count"] = ft["predicted_count"].astype(int)
+    ft["lower_bound"]     = ft["lower_bound"].astype(int)
+    ft["upper_bound"]     = ft["upper_bound"].astype(int)
+    ft.columns            = ["Date", "Predicted Incidents", "Lower Bound", "Upper Bound"]
+    st.dataframe(ft, use_container_width=True, hide_index=True)
 
     # Model card expander
-    with st.expander("🔍 Model Architecture Details"):
+    with st.expander("🔍 LSTM Architecture Details"):
         st.markdown(f"""
         | Parameter | Value |
         |---|---|
-        | Architecture | `TF-IDF  →  MLP (128, 64)` |
-        | Activation | `ReLU` |
-        | Optimiser | `Adam` |
-        | Max Iterations | `{card['max_iter']}` |
-        | Early Stopping | `Yes (patience=20)` |
-        | Vocabulary Size | `{card['vocab_size']:,} features` |
-        | Training Samples | `{card['training_rows']}` |
-        | Validation Accuracy | `{card['val_accuracy']}` |
+        | Architecture | `LSTM({card['hidden_units']}) → Dense(32, ReLU) → Dense({forecaster.forecast_days})` |
+        | Input | Last **{forecaster.lookback}** daily incident counts |
+        | Output | Next **{forecaster.forecast_days}** daily incident counts |
+        | Optimiser | `{card['optimiser']}` |
+        | Loss Function | `{card['loss_function']}` |
+        | Training Epochs | `{card['training_epochs']}` |
+        | Training Days | `{card['training_days']} days of data` |
+        | Final MSE | `{card['final_mse']}` |
         | Status | `{card['status']}` |
 
-        **Note:** This is a genuine Multi-Layer Perceptron (neural network) using
-        backpropagation and stochastic gradient descent. It learns to generalise
-        the rule-based risk labels from raw incident text, making predictions on
-        unseen threats without manual keyword tuning.
+        **How it works:**
+        The LSTM (Long Short-Term Memory) network learns temporal patterns in
+        daily incident counts. At each time step, the LSTM cell maintains a
+        **cell state** (long-term memory) and **hidden state** (short-term memory),
+        controlled by three gates — Forget, Input, and Output — each with
+        learnable weight matrices trained via backpropagation through time (BPTT).
+        The final hidden state is passed through two Dense layers to produce the
+        {forecaster.forecast_days}-day forecast.
         """)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  LAYER 2 — RISK ANALYSIS PANEL
+#  LAYER 2 — RISK ANALYSIS
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _render_risk_panel(df_enriched: pd.DataFrame):
     _section("Quantitative Risk Analysis", "📊")
 
-    # KPIs
-    mean_risk  = df_enriched["risk_index"].mean()
-    max_risk   = df_enriched["risk_index"].max()
-    extreme_n  = (df_enriched["risk_quadrant"] == "Extreme").sum()
-    mc_spread  = (df_enriched["risk_mc_p95"] - df_enriched["risk_mc_p5"]).mean()
+    mean_risk = df_enriched["risk_index"].mean()
+    max_risk  = df_enriched["risk_index"].max()
+    extreme_n = (df_enriched["risk_quadrant"] == "Extreme").sum()
+    mc_spread = (df_enriched["risk_mc_p95"] - df_enriched["risk_mc_p5"]).mean()
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        _metric_card("Mean Risk Index", f"{mean_risk:.3f}",
-                     "Likelihood × Impact", COLOURS["accent"])
+        _kpi("Mean Risk Index", f"{mean_risk:.3f}", "Likelihood × Impact", C["accent"])
     with c2:
-        _metric_card("Peak Risk", f"{max_risk:.3f}",
-                     "Highest single incident", COLOURS["Critical"])
+        _kpi("Peak Risk", f"{max_risk:.3f}", "Highest single incident", C["Critical"])
     with c3:
-        _metric_card("Extreme Quadrant", str(int(extreme_n)),
-                     "ISO 31000 — Extreme zone", COLOURS["High"])
+        _kpi("Extreme Zone", str(int(extreme_n)), "ISO 31000 Extreme quadrant", C["High"])
     with c4:
-        _metric_card("MC Uncertainty Band", f"±{mc_spread:.3f}",
-                     "Avg P5–P95 spread (N=1000)", COLOURS["Medium"])
+        _kpi("MC Uncertainty", f"±{mc_spread:.3f}", "Avg P5–P95 spread", C["Medium"])
 
-    col_left, col_right = st.columns(2)
+    col_l, col_r = st.columns(2)
 
-    # ── Risk Matrix scatter ───────────────────────────────────────────────────
-    with col_left:
-        _section("Risk Matrix (Likelihood × Impact)", "🎯")
+    with col_l:
+        _section("Risk Matrix", "🎯")
         fig = px.scatter(
             df_enriched.head(300),
             x="likelihood", y="impact_score",
             color="risk_quadrant",
-            size="risk_index",
-            size_max=18,
-            hover_data=["dl_label", "dl_confidence", "risk_index"],
+            size="risk_index", size_max=18,
             color_discrete_map={
-                "Extreme": COLOURS["Critical"],
-                "High":    COLOURS["High"],
-                "Moderate": COLOURS["Medium"],
-                "Low":     COLOURS["Low"],
+                "Extreme": C["Critical"], "High": C["High"],
+                "Moderate": C["Medium"], "Low": C["Low"],
             },
-            title="ISO 31000 Risk Matrix",
-            labels={
-                "likelihood":   "Likelihood →",
-                "impact_score": "Impact →",
-                "risk_quadrant": "Quadrant",
-            },
+            title="ISO 31000 Risk Matrix (Likelihood × Impact)",
+            labels={"likelihood": "Likelihood →", "impact_score": "Impact →",
+                    "risk_quadrant": "Zone"},
             template="plotly_dark",
         )
-        # Quadrant lines
-        fig.add_hline(y=0.6, line_dash="dot", line_color="#555", line_width=1)
-        fig.add_hline(y=0.4, line_dash="dot", line_color="#555", line_width=1)
-        fig.add_vline(x=0.6, line_dash="dot", line_color="#555", line_width=1)
-        fig.add_vline(x=0.4, line_dash="dot", line_color="#555", line_width=1)
+        fig.add_hline(y=0.6, line_dash="dot", line_color="#444", line_width=1)
+        fig.add_hline(y=0.4, line_dash="dot", line_color="#444", line_width=1)
+        fig.add_vline(x=0.6, line_dash="dot", line_color="#444", line_width=1)
+        fig.add_vline(x=0.4, line_dash="dot", line_color="#444", line_width=1)
         fig.update_layout(
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             margin=dict(t=50, b=20),
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    # ── Monte Carlo violin ────────────────────────────────────────────────────
-    with col_right:
+    with col_r:
         _section("Monte Carlo Uncertainty (N=1,000)", "🎲")
-        mc_df = df_enriched[["dl_label", "risk_mc_p5", "risk_mc_p50", "risk_mc_p95"]].copy()
+        mc_df = df_enriched[["severity", "risk_mc_p5", "risk_mc_p50", "risk_mc_p95"]].copy()
+        if "severity" not in mc_df.columns:
+            mc_df["severity"] = df_enriched.get("dl_label", "Unknown")
         mc_melt = mc_df.melt(
-            id_vars="dl_label",
+            id_vars="severity",
             value_vars=["risk_mc_p5", "risk_mc_p50", "risk_mc_p95"],
             var_name="Percentile", value_name="Risk",
         )
-        mc_melt["Percentile"] = mc_melt["Percentile"].map(
-            {"risk_mc_p5": "P5 (Optimistic)",
-             "risk_mc_p50": "P50 (Median)",
-             "risk_mc_p95": "P95 (Pessimistic)"}
-        )
+        mc_melt["Percentile"] = mc_melt["Percentile"].map({
+            "risk_mc_p5":  "P5 — Optimistic",
+            "risk_mc_p50": "P50 — Median",
+            "risk_mc_p95": "P95 — Pessimistic",
+        })
         fig2 = px.box(
-            mc_melt, x="Percentile", y="Risk", color="dl_label",
-            color_discrete_map=COLOURS,
+            mc_melt, x="Percentile", y="Risk", color="severity",
+            color_discrete_map=C,
             title="Monte Carlo Risk Distribution by Severity",
             template="plotly_dark",
         )
@@ -259,17 +272,16 @@ def _render_risk_panel(df_enriched: pd.DataFrame):
         )
         st.plotly_chart(fig2, use_container_width=True)
 
-    # ── Sector Risk Index ─────────────────────────────────────────────────────
+    # Sector risk
     _section("Sector Composite Risk Index", "🏭")
     sector_df = compute_sector_risk_index(df_enriched)
     if not sector_df.empty:
         fig3 = px.bar(
             sector_df.head(12),
-            x="composite_risk", y="sector",
-            orientation="h",
+            x="composite_risk", y="sector", orientation="h",
             color="composite_risk",
             color_continuous_scale=["#06D6A0", "#FFD166", "#FF8C42", "#FF4B4B"],
-            title="Sector Risk Index  (mean risk × log(incident count))",
+            title="Sector Risk Index = Mean Risk × log(1 + Incident Count)",
             labels={"composite_risk": "Composite Risk", "sector": "Sector"},
             template="plotly_dark",
             text="composite_risk",
@@ -283,10 +295,10 @@ def _render_risk_panel(df_enriched: pd.DataFrame):
         )
         st.plotly_chart(fig3, use_container_width=True)
 
-    # ── Risk Trend ────────────────────────────────────────────────────────────
+    # Risk trend
     trend_df = compute_risk_trend(df_enriched)
     if not trend_df.empty:
-        _section("Risk Index Trend (7-day Rolling Avg)", "📈")
+        _section("Risk Index Trend (7-day Rolling Average)", "📉")
         fig4 = go.Figure()
         fig4.add_trace(go.Scatter(
             x=trend_df["date"], y=trend_df["mean_risk"],
@@ -308,23 +320,24 @@ def _render_risk_panel(df_enriched: pd.DataFrame):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  LAYER 3 — DECISION ANALYSIS PANEL
+#  LAYER 3 — AHP DECISION ANALYSIS
 # ═════════════════════════════════════════════════════════════════════════════
 
-def _render_decision_panel(df_enriched: pd.DataFrame):
-    _section("Multi-Criteria Decision Analysis (AHP + TOPSIS)", "⚖️")
+def _render_ahp_panel(df_enriched: pd.DataFrame):
+    _section("AHP Decision Analysis — Incident Prioritisation", "⚖️")
 
-    # AHP weights
     col_w, col_cr = st.columns([3, 1])
+
     with col_w:
         wt = weight_table()
         fig = px.bar(
             wt, x="Criterion", y="Weight",
             color="Weight",
             color_continuous_scale=["#06D6A0", "#FF8C42", "#FF4B4B"],
-            title="AHP Criteria Weights (Saaty Eigenvector Method)",
+            title="AHP Criteria Weights  (Saaty Eigenvector Method)",
             template="plotly_dark",
             text="Weight (%)",
+            hover_data=["Meaning"],
         )
         fig.update_traces(textposition="outside")
         fig.update_layout(
@@ -334,127 +347,151 @@ def _render_decision_panel(df_enriched: pd.DataFrame):
         st.plotly_chart(fig, use_container_width=True)
 
     with col_cr:
-        cr = consistency_ratio()
+        cr    = consistency_ratio()
         cr_ok = cr < 0.10
+        colour = "#06D6A0" if cr_ok else "#FF4B4B"
         st.markdown(
-            f"""
-            <div style="background:{COLOURS['card']};border-left:4px solid
-            {'#06D6A0' if cr_ok else '#FF4B4B'};padding:20px;border-radius:8px;
-            margin-top:20px;">
+            f"""<div style="background:{C['card']};border-left:4px solid {colour};
+                padding:20px;border-radius:8px;margin-top:24px;">
                 <div style="font-size:11px;color:#9CA3AF;text-transform:uppercase;">
-                    AHP Consistency Ratio</div>
-                <div style="font-size:36px;font-weight:700;color:#F9FAFB;">
-                    {cr:.4f}</div>
-                <div style="font-size:13px;color:{'#06D6A0' if cr_ok else '#FF4B4B'};">
+                    Consistency Ratio</div>
+                <div style="font-size:36px;font-weight:700;color:#F9FAFB;">{cr:.4f}</div>
+                <div style="font-size:13px;color:{colour};">
                     {'✅ Acceptable (CR < 0.10)' if cr_ok else '⚠️ Review matrix'}</div>
                 <div style="font-size:11px;color:#6B7280;margin-top:8px;">
-                    Saaty's threshold: CR &lt; 0.10 indicates<br>
-                    sufficiently consistent judgements.</div>
+                    Saaty: CR &lt; 0.10 confirms<br>consistent judgements.</div>
             </div>""",
             unsafe_allow_html=True,
         )
 
-    # Prioritised incidents table
-    _section("Prioritised Incident Response Queue", "🚨")
-    top_df = prioritise(df_enriched, top_n=20)
+    # Run AHP
+    df_ahp = run_ahp(df_enriched)
 
-    display_cols_raw = [
-        "title", "post_title", "category", "country", "dl_label",
-        "dl_confidence", "risk_index", "topsis_score", "ahp_score",
-        "priority_score", "priority_rank", "recommendation",
+    # KPIs
+    critical_n = (df_ahp["priority_tier"] == "Critical").sum()
+    high_n     = (df_ahp["priority_tier"] == "High").sum()
+    mean_ahp   = df_ahp["ahp_score"].mean()
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        _kpi("Critical Incidents", str(int(critical_n)),
+             "AHP score ≥ 0.75", C["Critical"])
+    with c2:
+        _kpi("High Priority", str(int(high_n)),
+             "AHP score 0.50–0.75", C["High"])
+    with c3:
+        _kpi("Mean AHP Score", f"{mean_ahp:.3f}",
+             "Across all incidents", C["accent"])
+
+    # Priority distribution
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        tier_counts = df_ahp["priority_tier"].value_counts().reset_index()
+        tier_counts.columns = ["Tier", "Count"]
+        fig2 = px.pie(
+            tier_counts, names="Tier", values="Count",
+            color="Tier",
+            color_discrete_map=C,
+            title="AHP Priority Tier Distribution",
+            hole=0.45, template="plotly_dark",
+        )
+        fig2.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", margin=dict(t=50, b=20),
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+
+    with col_b:
+        fig3 = px.histogram(
+            df_ahp, x="ahp_score", nbins=20,
+            color="priority_tier",
+            color_discrete_map=C,
+            title="AHP Score Distribution",
+            labels={"ahp_score": "AHP Score", "priority_tier": "Priority"},
+            template="plotly_dark",
+            barmode="stack",
+        )
+        fig3.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            margin=dict(t=50, b=20), legend_title_text="",
+        )
+        st.plotly_chart(fig3, use_container_width=True)
+
+    # Response queue table
+    _section("Top 20 Priority Incidents — Response Queue", "🚨")
+    title_col = next((c for c in ("title", "post_title") if c in df_ahp.columns), None)
+    show_cols_raw = [
+        title_col, "category", "country", "severity",
+        "risk_index", "likelihood", "impact_score",
+        "ahp_score", "priority_tier", "recommendation",
     ]
-    display_cols = [c for c in display_cols_raw if c in top_df.columns]
+    show_cols = [c for c in show_cols_raw if c and c in df_ahp.columns]
 
-    # Title column
-    title_col = next((c for c in ("title", "post_title") if c in top_df.columns), None)
+    top20 = df_ahp.head(20)[show_cols].rename(columns={
+        title_col:      "Incident"   if title_col else None,
+        "risk_index":   "Risk Index",
+        "likelihood":   "Likelihood",
+        "impact_score": "Impact",
+        "ahp_score":    "AHP Score",
+        "priority_tier": "Priority",
+        "recommendation": "Action",
+        "severity":     "Severity",
+    })
 
-    def _row_style(row):
-        s = float(row.get("priority_score", 0))
-        if s >= 0.75: colour = "#FF4B4B22"
-        elif s >= 0.55: colour = "#FF8C4222"
-        elif s >= 0.35: colour = "#FFD16622"
-        else: colour = "#06D6A022"
-        return [f"background-color: {colour}"] * len(row)
+    def _row_colour(row):
+        t = row.get("Priority", "")
+        bg = {"Critical": "#FF4B4B22", "High": "#FF8C4222",
+              "Medium": "#FFD16622"}.get(t, "#06D6A022")
+        return [f"background-color:{bg}"] * len(row)
 
     styled = (
-        top_df[display_cols]
-        .rename(columns={
-            "dl_label":       "DL Severity",
-            "dl_confidence":  "Confidence",
-            "risk_index":     "Risk Index",
-            "topsis_score":   "TOPSIS",
-            "ahp_score":      "AHP",
-            "priority_score": "Priority",
-            "priority_rank":  "Rank",
-            "recommendation": "Action",
-        })
-        .style
-        .apply(_row_style, axis=1)
-        .format({
-            "Confidence": "{:.0%}",
-            "Risk Index": "{:.3f}",
-            "TOPSIS":     "{:.3f}",
-            "AHP":        "{:.3f}",
-            "Priority":   "{:.3f}",
-        }, na_rep="-")
+        top20.style
+        .apply(_row_colour, axis=1)
+        .format({"Risk Index": "{:.3f}", "Likelihood": "{:.3f}",
+                 "Impact": "{:.3f}", "AHP Score": "{:.3f}"}, na_rep="-")
     )
     st.dataframe(styled, use_container_width=True, height=480)
 
-    # AHP vs TOPSIS comparison
-    _section("AHP vs TOPSIS Score Comparison", "🔬")
-    if "ahp_score" in top_df.columns and "topsis_score" in top_df.columns:
-        fig5 = px.scatter(
-            top_df,
-            x="ahp_score", y="topsis_score",
-            color="dl_label",
-            size="priority_score",
-            size_max=20,
-            hover_data=[title_col] if title_col else None,
-            color_discrete_map=COLOURS,
-            title="AHP Score vs TOPSIS Score (size = priority)",
-            labels={"ahp_score": "AHP Score →", "topsis_score": "TOPSIS Score →"},
-            template="plotly_dark",
-        )
-        fig5.add_shape(
-            type="line", x0=0, y0=0, x1=1, y1=1,
-            line=dict(color="#555", dash="dot"),
-        )
-        fig5.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            margin=dict(t=50, b=20),
-        )
-        st.plotly_chart(fig5, use_container_width=True)
-
     # Methodology expander
-    with st.expander("📖 Methodology — AHP & TOPSIS Explained"):
+    with st.expander("📖 AHP Methodology Explained"):
+        weights = ahp_weights()
         st.markdown(f"""
-        ### Analytic Hierarchy Process (AHP)
-        - Pairwise comparison matrix (6×6) built using **Saaty's 1–9 scale**
-        - Priority weights derived via the **eigenvector method**
-        - **Consistency Ratio = {consistency_ratio():.4f}** (threshold < 0.10)
-        - Criteria: Risk Index, Impact Score, Likelihood, MC P95, Sector Weight, DL Confidence
+        ### Analytic Hierarchy Process (Saaty, 1980)
 
-        ### TOPSIS
-        - Normalises the decision matrix using vector normalisation
-        - Applies AHP-derived weights to the normalised matrix
-        - Calculates Euclidean distance from **Ideal Best** and **Ideal Worst** solutions
-        - Final score = distance to worst / (distance to best + distance to worst)
-        - Score → 1.0 means closest to worst (most critical threat)
+        **Step 1 — Pairwise Comparison Matrix**
+        A 5×5 matrix captures the relative importance of each criterion
+        using Saaty's 1–9 scale (1 = equal, 9 = extreme importance).
 
-        ### Combined Priority Score
+        **Step 2 — Normalisation**
+        Each column is divided by its sum, then row averages give the
+        **priority weights** (principal eigenvector approximation).
+
+        **Step 3 — Consistency Check**
+        Consistency Ratio = **{consistency_ratio():.4f}** (threshold < 0.10 ✅)
+        This confirms the pairwise judgements are logically consistent.
+
+        **Step 4 — Scoring**
+        Each incident is scored as the weighted sum of its normalised
+        criteria values:
+
         ```
-        priority_score = (ahp_score + topsis_score) / 2
+        AHP Score = {' + '.join([f'{w:.3f}×{c.replace("_"," ")}' for c, w in weights.items()])}
         ```
-        This equal blend ensures neither method dominates and provides
-        robust, cross-validated threat prioritisation.
 
-        ### Alignment to NAIO Malaysia 2026–2030
-        | NAIO Area | How This Addresses It |
+        **Priority Tiers**
+        | Score | Tier | Action |
+        |---|---|---|
+        | ≥ 0.75 | Critical | Escalate within 1 hour |
+        | 0.50–0.75 | High | Investigate within 24 hours |
+        | 0.30–0.50 | Medium | Review within 72 hours |
+        | < 0.30 | Monitor | Weekly report |
+
+        **Alignment to NAIO Malaysia 2026–2030**
+        | Area | Contribution |
         |---|---|
-        | Area 3 — AI Adaptation | Demonstrates practical AI integration in cybersecurity ops |
-        | Area 4 — AI Ethics | Transparent, explainable scoring with traceable weights |
-        | Area 5 — AI Impact Study | Quantified impact on decision-making efficiency |
-        | Area 7 — Datasets | Live Supabase data drives all three analytical layers |
+        | Area 3 — AI Adaptation | Demonstrates practical AI decision support |
+        | Area 4 — AI Ethics | Transparent, traceable, explainable scoring |
+        | Area 5 — AI Impact Study | Quantified improvement in response prioritisation |
         """)
 
 
@@ -463,9 +500,6 @@ def _render_decision_panel(df_enriched: pd.DataFrame):
 # ═════════════════════════════════════════════════════════════════════════════
 
 def page_ai_risk_decision(get_data_fn):
-    """
-    Main entry point.  Pass the get_data() function from application.py.
-    """
     st.markdown(
         """
         <div style="padding:24px 0 8px;">
@@ -473,16 +507,31 @@ def page_ai_risk_decision(get_data_fn):
                 🧠 AI Risk Decision Centre
             </h1>
             <p style="color:#9CA3AF;margin:6px 0 0;">
-                Deep Learning  ·  Quantitative Risk Analysis  ·  AHP + TOPSIS Decision Analysis
-                &nbsp;|&nbsp; Aligned to Malaysia NAIO Action Plan 2026–2030
+                LSTM Forecasting &nbsp;·&nbsp; Quantitative Risk Analysis
+                &nbsp;·&nbsp; AHP Decision Analysis
+                &nbsp;|&nbsp; Aligned to Malaysia NAIO 2026–2030
             </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    # ── Data loading ──────────────────────────────────────────────────────────
-    with st.spinner("Loading incident data…"):
+    # ── Sidebar ───────────────────────────────────────────────────────────────
+    with st.sidebar:
+        st.markdown("### ⚙️ AI Risk Centre")
+        retrain      = st.button("🔄 Retrain LSTM", use_container_width=True,
+                                 help="Re-trains the LSTM on current data")
+        forecast_days = st.slider("Forecast horizon (days)", 3, 14, 7)
+        lookback      = st.slider("LSTM lookback window (days)", 7, 30, 14)
+        top_n         = st.slider("Incidents to analyse", 50, 500, 200, 50)
+        st.markdown("---")
+        st.markdown(
+            "<small style='color:#6B7280;'>LSTM trains automatically on first load.</small>",
+            unsafe_allow_html=True,
+        )
+
+    # ── Load data ─────────────────────────────────────────────────────────────
+    with st.spinner("Loading data…"):
         df_raw = get_data_fn("global_news")
         if df_raw is None or df_raw.empty:
             df_raw = get_data_fn("incidents")
@@ -491,63 +540,38 @@ def page_ai_risk_decision(get_data_fn):
         st.error("⚠️ No data available. Check your Supabase connection.")
         return
 
-    # ── Sidebar controls ──────────────────────────────────────────────────────
-    with st.sidebar:
-        st.markdown("### ⚙️ AI Risk Centre Settings")
-        retrain = st.button("🔄 Retrain DL Model", use_container_width=True,
-                            help="Re-trains the neural network on current data")
-        top_n   = st.slider("Top incidents to analyse", 50, 500, 200, 50)
-        st.markdown("---")
-        st.markdown(
-            "<small style='color:#6B7280;'>Model trains automatically on first load.<br>"
-            "Click Retrain after new data arrives.</small>",
-            unsafe_allow_html=True,
-        )
-
     df = df_raw.head(top_n).copy()
 
-    # ── Layer 1: Train / load DL classifier ──────────────────────────────────
-    cache_key = f"dl_clf_{len(df_raw)}"
+    # ── Train LSTM ────────────────────────────────────────────────────────────
+    cache_key = f"lstm_{len(df_raw)}_{forecast_days}_{lookback}"
     if retrain or cache_key not in st.session_state:
-        with st.spinner("🧠 Training neural network…"):
-            clf = DLClassifier()
-            clf.train(df_raw)          # train on full dataset
-            st.session_state[cache_key] = clf
-            st.session_state["dl_clf_current"] = clf
+        with st.spinner("🧠 Training LSTM forecaster…"):
+            fc = LSTMForecaster(
+                lookback      = lookback,
+                forecast_days = forecast_days,
+            )
+            fc.fit(df_raw)
+            st.session_state[cache_key]     = fc
+            st.session_state["lstm_current"] = fc
     else:
-        clf = st.session_state.get("dl_clf_current") or st.session_state[cache_key]
+        fc = st.session_state.get("lstm_current") or st.session_state[cache_key]
 
-    # ── Build text blobs for prediction ──────────────────────────────────────
-    title_col   = next((c for c in ("title", "post_title") if c in df.columns), None)
-    summary_col = next((c for c in ("summary", "description") if c in df.columns), None)
+    # ── Risk enrichment (uses existing rule-based severity as fallback) ────────
+    with st.spinner("📊 Running risk analysis…"):
+        df_enriched = enrich_with_risk(df)
 
-    texts = []
-    for _, row in df.iterrows():
-        parts = [
-            str(row.get(title_col,   "") or ""),
-            str(row.get(summary_col, "") or ""),
-        ]
-        texts.append(" ".join(p for p in parts if p).strip() or "unknown")
-
-    with st.spinner("🔮 Running DL predictions…"):
-        dl_preds = clf.predict(texts)
-
-    # ── Layer 2: Risk enrichment ──────────────────────────────────────────────
-    with st.spinner("📊 Running risk analysis + Monte Carlo…"):
-        df_enriched = enrich_with_risk(df, dl_preds)
-
-    # ── Render panels ─────────────────────────────────────────────────────────
+    # ── Tabs ──────────────────────────────────────────────────────────────────
     tab1, tab2, tab3 = st.tabs([
-        "🧠 Layer 1 — Deep Learning",
+        "📈 Layer 1 — LSTM Forecasting",
         "📊 Layer 2 — Risk Analysis",
-        "⚖️ Layer 3 — Decision Analysis",
+        "⚖️ Layer 3 — AHP Decision",
     ])
 
     with tab1:
-        _render_dl_panel(clf, df_enriched)
+        _render_lstm_panel(fc, df_raw)
 
     with tab2:
         _render_risk_panel(df_enriched)
 
     with tab3:
-        _render_decision_panel(df_enriched)
+        _render_ahp_panel(df_enriched)

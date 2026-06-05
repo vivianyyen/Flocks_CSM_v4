@@ -1,33 +1,74 @@
-# 🛡️ Incident Intel — Cybersecurity & Threat Intelligence Dashboard
+# 🛡️ Flocks CSM v5 — Cyber Threat Intelligence Dashboard
 
-> Real-time cybersecurity incident monitoring and ransomware tracking dashboard built with **Streamlit** + **Supabase** + **Groq AI (Flocks AI)**.
+> Real-time cybersecurity incident monitoring, LSTM forecasting, and AHP-based decision analysis.
+> Built with **Streamlit** + **Supabase** + **Groq AI**.
 
 ---
 
 ## Overview
 
-**Incident Intel** is a full-stack threat intelligence dashboard that aggregates cybersecurity news and ransomware victim data into a single, interactive interface. It enables security analysts and researchers to monitor global cyber threats in real time, explore trends across categories and countries, and ask natural language questions via an AI-powered analyst chatbot backed by Groq's fast LLM inference.
+**Flocks CSM v5** extends the threat intelligence dashboard with three integrated AI/analytical layers aligned to Malaysia's NAIO Action Plan 2026–2030:
+
+| Layer | Method | Purpose |
+|---|---|---|
+| 1 | **LSTM Neural Network** | Predict future incident volumes (next 7 days) |
+| 2 | **Quantitative Risk Analysis** | Likelihood × Impact matrix + Monte Carlo simulation |
+| 3 | **AHP Decision Analysis** | Prioritise incidents for analyst response |
 
 ---
 
 ## Project Structure
 
 ```
-incident_dashboard/
-├── application.py                # Main dashboard entry point
+Flocks_CSM_v5/
+├── application.py                  # Main entry point + navigation
 ├── requirements.txt
 ├── .streamlit/
-│   └── secrets.toml              # Your credentials (never commit this!)
+│   └── secrets.toml                # Credentials (never commit!)
 └── utils/
-    ├── supabase_client.py        # Supabase connection & data fetching
-    ├── charts.py                 # All Plotly & WordCloud chart functions
-    ├── chatbot.py                # Groq-powered AI analyst chatbot
-    ├── risk_scorer.py            # Rule-based risk scoring engine (baseline)
-    ├── dl_classifier.py          # ⭐ Deep Learning: TF-IDF → MLP classifier
-    ├── risk_analysis.py          # ⭐ Quantitative Risk: Likelihood×Impact + Monte Carlo
-    ├── decision_analysis.py      # ⭐ MCDA: AHP + TOPSIS prioritisation
-    └── page_ai_risk_decision.py  # ⭐ AI Risk Decision Centre page
+    ├── supabase_client.py          # Supabase connection
+    ├── charts.py                   # Plotly & WordCloud charts
+    ├── chatbot.py                  # Groq AI analyst chatbot
+    ├── risk_scorer.py              # Rule-based risk scoring (baseline)
+    ├── lstm_forecaster.py          # ⭐ LSTM incident volume forecasting
+    ├── risk_analysis.py            # ⭐ Risk matrix + Monte Carlo
+    ├── decision_analysis.py        # ⭐ AHP prioritisation (no TOPSIS)
+    └── page_ai_risk_decision.py    # ⭐ AI Risk Decision Centre page
 ```
+
+---
+
+## Pages
+
+| Page | Description |
+|---|---|
+| 📰 Cyber News | Global + Malaysia incident feed, charts, filters |
+| 🔴 Ransomware Live | Ransomware victim tracker |
+| 🤖 AI Analyst | Groq-powered natural language chatbot |
+| 🧠 AI Risk Decision | LSTM forecast + Risk Analysis + AHP ← NEW |
+
+---
+
+## AI Risk Decision Centre — Feature Details
+
+### Layer 1 — LSTM Forecasting
+- Predicts **daily incident count for the next 7 days**
+- Architecture: `LSTM(64) → Dense(32, ReLU) → Dense(7)`
+- Trained on historical Supabase incident data
+- Uncertainty bands grow with forecast horizon (±10% per day)
+- Adjustable lookback window (7–30 days) and forecast horizon (3–14 days)
+
+### Layer 2 — Quantitative Risk Analysis
+- **Likelihood × Impact** risk matrix (ISO 31000)
+- **Monte Carlo simulation** (N=1,000): P5/P50/P95 confidence intervals
+- **Sector Composite Risk Index**: mean risk × log(1 + count)
+- **7-day rolling risk trend** chart
+
+### Layer 3 — AHP Decision Analysis
+- **5×5 pairwise comparison matrix** (Saaty 1–9 scale)
+- Eigenvector-derived priority weights
+- **Consistency Ratio check** (CR < 0.10 required)
+- Colour-coded **response queue** (Critical / High / Medium / Monitor)
 
 ---
 
@@ -39,128 +80,38 @@ pip install -r requirements.txt
 ```
 
 ### 2. Configure credentials
-```bash
-mkdir -p .streamlit
-cp .streamlit/secrets.toml.template .streamlit/secrets.toml
-# Then edit .streamlit/secrets.toml with your real keys
-```
-
-Your `.streamlit/secrets.toml` should look like:
 ```toml
+# .streamlit/secrets.toml
 [supabase]
 url = "https://xxxxxxxxxxxx.supabase.co"
-key = "your-anon-public-key"        # Found in Supabase → Settings → API
+key = "your-anon-public-key"
 
 [groq]
-api_key = "your-groq-api-key"       # From console.groq.com
+api_key = "your-groq-api-key"
 ```
 
-### 3. Supabase table schema
-
-**Tab 1 — Incidents table** (default name: `incidents`):
-
-| Column | Type |
-|---|---|
-| id | int8 / uuid |
-| title | text |
-| publication_date | timestamptz |
-| source | text |
-| url | text |
-| summary | text |
-| relevant_keywords | text |
-| category | text |
-| country | text |
-| impact | text |
-| incident_type | text |
-| entity_affected | text |
-| incident_date | timestamptz |
-
-**Tab 2 — Ransomware victims table** (default name: `ransomware_victims`):
-
-| Column | Type |
-|---|---|
-| id | int8 / uuid |
-| post_title | text |
-| group_name | text |
-| country | text |
-| activity | text |
-| discovered | timestamptz |
-| published | timestamptz |
-| website | text |
-| post_url | text (unique) |
-| description | text |
-| created_at | timestamptz |
-
-> If your tables have different names, update `get_data("incidents")` and `get_data("ransomware_victims")` in `application.py`.
-
-### 4. Run the dashboard
+### 3. Run
 ```bash
 streamlit run application.py
 ```
 
-Open http://localhost:8501 in your browser.
-
 ---
 
-## Features
+## Deployment (Streamlit Community Cloud — Free)
 
-### 📰 Tab 1 — Cyber News
-| Feature | Description |
-|---|---|
-| **KPI Cards** | Total incidents, sources, critical count, countries, new this week |
-| **Category Bar Chart** | Horizontal bar — incidents per category |
-| **Incident Type Donut** | Pie/donut breakdown by incident type |
-| **Timeline Area Chart** | Weekly trend, stacked by category |
-| **Impact Distribution** | Critical → High → Medium → Low |
-| **Choropleth Map** | World map coloured by incident count per country |
-| **Source Breakdown** | Top crawled domains |
-| **Word Clouds** | Generated from summary text & relevant keywords |
-| **Raw Data Table** | Filterable, sortable incident table |
-| **AI Chatbot** | Groq-powered analyst; answers questions about the loaded data |
-| **Sidebar Filters** | Date range, category, country, impact |
-| **Auto-refresh** | Toggle 60-second live refresh |
-
-### 🧠 NEW: AI Risk Decision Centre (Page 4)
-| Feature | Description |
-|---|---|
-| **DL Classifier** | TF-IDF → MLP neural network (128→64→4), trained on live data |
-| **Confidence Histogram** | Per-severity confidence distribution from the DL model |
-| **ISO 31000 Risk Matrix** | Likelihood × Impact scatter with quadrant zones |
-| **Monte Carlo Simulation** | N=1,000 runs → P5/P50/P95 uncertainty bands per incident |
-| **Sector Risk Index** | Composite risk aggregated by industry sector |
-| **AHP Weights Chart** | Eigenvector-derived criteria weights with Consistency Ratio |
-| **TOPSIS Ranking** | Incidents ranked by distance from ideal best/worst |
-| **Priority Queue** | Top 20 incidents with colour-coded response recommendations |
-| **AHP vs TOPSIS Plot** | Cross-method validation scatter |
-
-
-| Feature | Description |
-|---|---|
-| **KPI Cards** | Total victims, active groups, most active group, countries hit, new this week |
-| **Weekly Victims Timeline** | Bar chart of victim count over time |
-| **Top 10 Groups** | Ranked bar chart of most active ransomware groups |
-| **World Map** | Choropleth map of victims by country |
-| **Sector Breakdown** | Pie chart of industries targeted |
-| **Victim Feed** | Scrollable cards with group, country, sector, date, and source link |
-| **Sidebar Filters** | Date range, threat group, country, sector |
-
----
-
-## Free Deployment on Streamlit Community Cloud
-
-1. Push your project to a **public** GitHub repo
-   (make sure `.streamlit/secrets.toml` is in `.gitignore`)
+1. Push to a **public** GitHub repo (ensure `secrets.toml` is in `.gitignore`)
 2. Go to https://share.streamlit.io → **New app**
-3. Select your repo and set `application.py` as the main file
-4. Add your secrets under **Advanced settings → Secrets**
-5. Click **Deploy** — free, no credit card needed
+3. Set `application.py` as the main file
+4. Add secrets under **Advanced settings → Secrets**
+5. Click **Deploy**
 
 ---
 
-## Cost Summary (All Free Tiers)
+## NAIO Alignment
 
-| Service | Free Tier |
+| NAIO Area | How This Project Addresses It |
 |---|---|
-| Supabase | 500 MB DB, 2 GB bandwidth / month |
-| Streamlit Community Cloud | Unlimited public apps |
-| Groq API | Free tier available at console.groq.com |
+| Area 3 — AI Adaptation | LSTM + AHP demonstrate practical AI in cybersecurity ops |
+| Area 4 — AI Ethics | Transparent, explainable AHP weights + CR validation |
+| Area 5 — AI Impact Study | Forecast + prioritisation quantify AI's operational value |
+| Area 7 — Datasets | Live Supabase pipeline drives all analytical layers |
