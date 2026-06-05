@@ -1,0 +1,11 @@
+streamlit>=1.35.0
+pandas
+supabase
+groq
+plotly
+wordcloud
+matplotlib
+google.genai
+scikit-learn>=1.3.0
+numpy
+
