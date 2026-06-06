@@ -288,7 +288,7 @@ def _render_per_class(clf: IncidentClassifier):
 
     styled = (
         report_df.style
-        .applymap(_colour_f1, subset=['F1 Score'])
+        .map(_colour_f1, subset=['F1 Score'])
         .format({'Precision': '{:.3f}', 'Recall': '{:.3f}', 'F1 Score': '{:.3f}'})
     )
     st.dataframe(styled, use_container_width=True, hide_index=True)
