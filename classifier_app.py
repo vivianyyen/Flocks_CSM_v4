@@ -1,7 +1,7 @@
 import streamlit as st
 from dotenv import load_dotenv
 from utils.supabase_adapter import get_supabase_data
-from utils.ai_classifier_v2 import ai_classifier_v2
+from utils.ai_classifier_v2 import ai_classifier
 
 load_dotenv()
 
