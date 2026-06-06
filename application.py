@@ -24,7 +24,7 @@ from utils.charts import (
 )
 from utils.chatbot import chatbot_ui
 from utils.risk_scorer import score_dataframe   # ← rule-based baseline scorer
-from utils.page_ai_risk_decision import page_ai_risk_decision as _page_ai_risk_raw
+from utils.page_ai_classifier import page_ai_classifier as _page_ai_clf_raw
 
 TZ_MY = ZoneInfo("Asia/Kuala_Lumpur")
 def now_my(): return datetime.now(tz=TZ_MY)
@@ -1669,8 +1669,8 @@ def page_ai_analyst():
 # ══════════════════════════════════════════════════════════════════════════════
 #  NAVIGATION
 # ══════════════════════════════════════════════════════════════════════════════
-def page_ai_risk_decision():
-    _page_ai_risk_raw(get_data)
+def page_ai_classifier():
+    _page_ai_clf_raw(get_data)
 
 
 pg = st.navigation(
@@ -1678,7 +1678,7 @@ pg = st.navigation(
         st.Page(page_cyber_news,        title="Cyber News",          icon="📰", default=True),
         st.Page(page_ransomware,        title="Ransomware Live",     icon="🔴"),
         st.Page(page_ai_analyst,        title="AI Analyst",          icon="🤖"),
-        st.Page(page_ai_risk_decision,  title="LSTM Forecasting",    icon="🧠"),
+        st.Page(page_ai_classifier,     title="AI Classifier",       icon="🧠"),
     ],
     position="top",
 )
