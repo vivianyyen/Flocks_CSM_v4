@@ -36,12 +36,37 @@ from sklearn.metrics import (
 )
 
 # ── Constants ─────────────────────────────────────────────────────────────────
+
+# Map all original incident types into 4 top-level categories
 LABEL_MAP = {
-    'Ransomware Attack':   'Ransomware',
-    'Credential Stuffing': 'Data Breach',
-    'Multiple':            'Others',
-    'APT':                 'Advanced Persistent Threat (APT)',
-    'Unauthorised Access': 'Others',
+    # ── Intrusion System ──────────────────────────────────────────────────────
+    'Malware':                          'Intrusion System',
+    'Ransomware':                       'Intrusion System',
+    'Ransomware Attack':                'Intrusion System',
+    'Advanced Persistent Threat (APT)': 'Intrusion System',
+    'APT':                              'Intrusion System',
+    'DDoS':                             'Intrusion System',
+    'Vulnerability':                    'Intrusion System',
+    'Zero-Day':                         'Intrusion System',
+    'Supply Chain':                     'Intrusion System',
+    'Supply Chain Attack':              'Intrusion System',
+    'Unauthorised Access':              'Intrusion System',
+
+    # ── Data Breach ───────────────────────────────────────────────────────────
+    'Data Breach':                      'Data Breach',
+    'Insider Threat':                   'Data Breach',
+
+    # ── Compromise of Credentials ─────────────────────────────────────────────
+    'Phishing':                         'Compromise of Credentials',
+    'Social Engineering':               'Compromise of Credentials',
+    'Credential Stuffing':              'Compromise of Credentials',
+
+    # ── Fraud ─────────────────────────────────────────────────────────────────
+    'Fraud':                            'Fraud',
+    'Financial Fraud':                  'Fraud',
+    'Cybersecurity':                    'Fraud',
+    'Multiple':                         'Fraud',
+    'Others':                           'Fraud',
 }
 MIN_CLASS_SAMPLES = 4
 TEST_SIZE         = 0.20

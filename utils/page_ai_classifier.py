@@ -37,19 +37,10 @@ C = {
 }
 
 SEVERITY_COLOUR = {
-    'Ransomware':                      '#FF4B4B',
-    'Malware':                         '#FF8C42',
-    'Advanced Persistent Threat (APT)':'#FF4B4B',
-    'Zero-Day':                        '#FF8C42',
-    'Data Breach':                     '#FFD166',
-    'Phishing':                        '#FFD166',
-    'DDoS':                            '#60A5FA',
-    'Supply Chain':                    '#A78BFA',
-    'Fraud':                           '#34D399',
-    'Financial Fraud':                 '#34D399',
-    'Social Engineering':              '#34D399',
-    'Cybersecurity':                   '#9CA3AF',
-    'Others':                          '#6B7280',
+    'Intrusion System':          '#FF4B4B',
+    'Data Breach':               '#FFD166',
+    'Compromise of Credentials': '#60A5FA',
+    'Fraud':                     '#34D399',
 }
 
 
@@ -371,11 +362,15 @@ def _render_live_classifier(clf: IncidentClassifier):
         unsafe_allow_html=True,
     )
     examples = [
-        'CIMB Bank Malaysia suffers data breach exposing customer financial records on dark web',
+        # Intrusion System
         'LockBit ransomware group claims attack on Malaysian government ministry demands payment',
-        'Critical zero-day vulnerability discovered in Microsoft Exchange affecting all versions',
-        'Phishing campaign targets Maybank users via fake SMS login pages stealing credentials',
         'APT group linked to nation-state deploys backdoor malware in Southeast Asian telecoms',
+        # Data Breach
+        'CIMB Bank Malaysia suffers data breach exposing customer financial records on dark web',
+        # Compromise of Credentials
+        'Phishing campaign targets Maybank users via fake SMS login pages stealing credentials',
+        # Fraud
+        'Scammers impersonate LHDN officers in phone fraud targeting Malaysian taxpayers',
     ]
     for ex in examples:
         if st.button(f'📌 {ex[:75]}...', key=ex):
@@ -405,7 +400,7 @@ def page_ai_classifier(get_data_fn):
                 🧠 AI Incident Type Classifier
             </h1>
             <p style="color:#9CA3AF;margin:6px 0 0;">
-                MLP Neural Network · TF-IDF Text Features · 13 Attack Type Classes
+                MLP Neural Network · TF-IDF Text Features · 4 Incident Categories
                 &nbsp;|&nbsp; Aligned to Malaysia NAIO 2026–2030
             </p>
         </div>""",
@@ -452,26 +447,5 @@ def page_ai_classifier(get_data_fn):
         st.error('Model could not be trained. Check that incident_type labels exist in the data.')
         return
 
-    # ── Tabs ──────────────────────────────────────────────────────────────────
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        '📊 Evaluation Card',
-        '📉 Training Curve',
-        '🔢 Confusion Matrix',
-        '📋 Per-Class Report',
-        '🔍 Live Classifier',
-    ])
-
-    with tab1:
-        _render_eval_card(clf)
-
-    with tab2:
-        _render_training_curve(clf)
-
-    with tab3:
-        _render_confusion_matrix(clf)
-
-    with tab4:
-        _render_per_class(clf)
-
-    with tab5:
-        _render_live_classifier(clf)
+    # ── Live Classifier only ──────────────────────────────────────────────────
+    _render_live_classifier(clf)
