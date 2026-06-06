@@ -1,4 +1,4 @@
-# classifier_app.py - Complete AI Incident Type Classifier for Streamlit Cloud# classifier_app.py - AI Incident Type Classifier
+# classifier_app.py - AI Incident Type Classifier
 
 import streamlit as st
 import pandas as pd
@@ -91,107 +91,70 @@ class IncidentClassifier:
         self.per_class_report_cache = None
     
     def train(self, df):
-    if df.empty:
-        return False
-    
-    df = df.copy()
-    
-    # Create more robust text features
-    df['text'] = (
-        df['title'].fillna('') + ' ' + 
-        df['summary'].fillna('') + ' ' +
-        df.get('relevant_keywords', '').fillna('')
-    )
-    
-    # Expand label mapping with more variations
-    label_map = {
-        # Intrusion System - ADD MORE VARIATIONS
-        'Malware': 'Intrusion System',
-        'Ransomware': 'Intrusion System',
-        'Ransomware Attack': 'Intrusion System',
-        'APT': 'Intrusion System',
-        'Advanced Persistent Threat': 'Intrusion System',
-        'DDoS': 'Intrusion System',
-        'Dos': 'Intrusion System',
-        'Vulnerability': 'Intrusion System',
-        'Zero-Day': 'Intrusion System',
-        'Zero Day': 'Intrusion System',
-        'Exploit': 'Intrusion System',
-        'Attack': 'Intrusion System',
-        'Cyber Attack': 'Intrusion System',
-        'Cyberattack': 'Intrusion System',
-        'Hack': 'Intrusion System',
-        'Hacker': 'Intrusion System',
-        'Hacking': 'Intrusion System',
-        'Intrusion': 'Intrusion System',
-        'Breach Attempt': 'Intrusion System',
-        'Unauthorized Access': 'Intrusion System',
-        'Unauthorised Access': 'Intrusion System',
-        'Supply Chain': 'Intrusion System',
-        'Supply Chain Attack': 'Intrusion System',
-        'Botnet': 'Intrusion System',
-        'Backdoor': 'Intrusion System',
-        'Trojan': 'Intrusion System',
-        'Worm': 'Intrusion System',
-        'Spyware': 'Intrusion System',
-        'Rootkit': 'Intrusion System',
+        if df.empty:
+            return False
         
-        # Data Breach
-        'Data Breach': 'Data Breach',
-        'Breach': 'Data Breach',
-        'Data Leak': 'Data Breach',
-        'Data Exposure': 'Data Breach',
-        'Data Theft': 'Data Breach',
-        'Information Leak': 'Data Breach',
-        'Insider Threat': 'Data Breach',
-        'Sell Data': 'Data Breach',
-        'Data Breached': 'Data Breach',
-        'Database Breach': 'Data Breach',
-        'Personal Data': 'Data Breach',
+        df = df.copy()
         
-        # Compromise of Credentials
-        'Phishing': 'Compromise of Credentials',
-        'Social Engineering': 'Compromise of Credentials',
-        'Credential Stuffing': 'Compromise of Credentials',
-        'Account Takeover': 'Compromise of Credentials',
-        'Account Compromise': 'Compromise of Credentials',
-        'Brute Force': 'Compromise of Credentials',
-        'Password Attack': 'Compromise of Credentials',
-        'Credential Theft': 'Compromise of Credentials',
-        'Login Credentials': 'Compromise of Credentials',
+        required_cols = ['title', 'summary', 'incident_type']
+        missing_cols = [c for c in required_cols if c not in df.columns]
+        if missing_cols:
+            return False
         
-        # Fraud
-        'Fraud': 'Scam/Fraud',
-        'Financial Fraud': 'Scam/Fraud',
-        'Scam': 'Scam/Fraud',
-        'Scam/Fraud': 'Scam/Fraud',
-        'Advertising fraud': 'Scam/Fraud',
-        'Wire Fraud': 'Scam/Fraud',
-        'Bank Fraud': 'Scam/Fraud',
-        'Payment Fraud': 'Scam/Fraud',
+        df['text'] = df['title'].fillna('') + ' ' + df['summary'].fillna('')
+        df = df.dropna(subset=['incident_type'])
+        df = df[df['incident_type'].str.strip() != '']
         
-        # Other
-        'Cybersecurity': 'Other',
-        'Other Cyber Incident': 'Other Cyber Incident',
-        'Other': 'Other',
-    }
-    
-    # Case-insensitive matching for incident_type
-    df['incident_type'] = df['incident_type'].str.strip()
-    
-    # Apply mapping with case-insensitive matching
-    def map_label(label):
-        if pd.isna(label):
-            return None
-        label_lower = str(label).lower()
-        for key, value in label_map.items():
-            if key.lower() == label_lower or key.lower() in label_lower:
-                return value
-        return label
-    
-    df['incident_type'] = df['incident_type'].apply(map_label)
-    
-    # ... rest of training code ...
+        if df.empty:
+            return False
+        
+        label_map = {
+            'Malware': 'Intrusion System',
+            'Ransomware': 'Intrusion System',
+            'Ransomware Attack': 'Intrusion System',
+            'Advanced Persistent Threat (APT)': 'Intrusion System',
+            'APT': 'Intrusion System',
+            'DDoS': 'Intrusion System',
+            'Vulnerability': 'Intrusion System',
+            'Zero-Day': 'Intrusion System',
+            'Supply Chain': 'Intrusion System',
+            'Supply Chain Attack': 'Intrusion System',
+            'Unauthorised Access': 'Intrusion System',
+            'Exploit': 'Intrusion System',
+            'Botnet': 'Intrusion System',
+            'Botnet control': 'Intrusion System',
+            'Attack': 'Intrusion System',
+            'Cyber Attack': 'Intrusion System',
+            'Cyberattack': 'Intrusion System',
+            'Hack': 'Intrusion System',
+            'Hacking': 'Intrusion System',
+            'Intrusion': 'Intrusion System',
+            'Handala': 'Intrusion System',
+            'Data Breach': 'Data Breach',
+            'Insider Threat': 'Data Breach',
+            'Data Leak': 'Data Breach',
+            'Sell Data': 'Data Breach',
+            'Data Breached': 'Data Breach',
+            'Breach': 'Data Breach',
+            'Phishing': 'Compromise of Credentials',
+            'Social Engineering': 'Compromise of Credentials',
+            'Credential Stuffing': 'Compromise of Credentials',
+            'Account Takeover': 'Compromise of Credentials',
+            'Brute Force': 'Compromise of Credentials',
+            'Compromise Credentials': 'Compromise of Credentials',
+            'Fraud': 'Scam/Fraud',
+            'Financial Fraud': 'Scam/Fraud',
+            'Scam/Fraud': 'Scam/Fraud',
+            'Advertising fraud': 'Scam/Fraud',
+            'Scam': 'Scam/Fraud',
+            'Cybersecurity': 'Other',
+            'Other Cyber Incident': 'Other Cyber Incident',
+            'Others': 'Other',
+            'Other': 'Other',
+            'cybersecurity incident': 'Other',
+        }
+        
+        df['incident_type'] = df['incident_type'].replace(label_map)
         df = df[~df['incident_type'].isin(['Multiple'])]
         
         counts = df['incident_type'].value_counts()
@@ -310,6 +273,20 @@ class IncidentClassifier:
     def predict_one(self, text):
         if not self.is_ready():
             return {'label': 'Error', 'confidence': 0, 'top3': []}
+        
+        # Quick keyword override for attack terms
+        text_lower = text.lower()
+        attack_keywords = ['attack', 'hack', 'malware', 'ransomware', 'ddos', 
+                           'breach', 'intrusion', 'exploit', 'zero-day', 
+                           'apt', 'backdoor', 'trojan', 'worm', 'botnet', 'handala']
+        
+        for keyword in attack_keywords:
+            if keyword in text_lower:
+                return {
+                    'label': 'Intrusion System',
+                    'confidence': 0.85,
+                    'top3': [('Intrusion System', 0.85), ('Other', 0.10), ('Data Breach', 0.05)]
+                }
         
         vec = self.vectorizer.transform([text])
         pred = self.mlp.predict(vec)[0]
