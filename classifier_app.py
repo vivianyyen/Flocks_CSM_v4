@@ -67,7 +67,7 @@ def fetch_cyber_news():
         return pd.DataFrame()
     
     try:
-        response = client.table('cyber_news').select('*').execute()
+        response = client.table('global_news').select('*').execute()
         if response.data:
             return pd.DataFrame(response.data)
         return pd.DataFrame()
@@ -501,7 +501,7 @@ def main():
     df = fetch_cyber_news()
     
     if df.empty:
-        st.warning("No data available in cyber_news table.")
+        st.warning("No data available in global_news table.")
         return
 
     cache_key = f'clf_{len(df)}'
