@@ -557,6 +557,7 @@ def chatbot_ui(df: pd.DataFrame):
                     st.session_state.flocks_session_id = client.create_session("CTI Dashboard Chat")
             else:
                 st.session_state.flocks_session_id = client.create_session("CTI Dashboard Chat")
+            print("FLOCKS SESSION ID:", st.session_state.flocks_session_id)
             st.session_state.flocks_client_init = True
         except Exception as e:
             status = f"session_error: {e}"
