@@ -64,10 +64,16 @@ class FlocksClient:
             if r.status_code == 200:
                 try:
                     data = r.json()
-                    return data.get("status") == "running"
+                    status = data.get("status", "").lower()
+
+                    return status in [
+                        "running",
+                        "healthy",
+                        "ok"
+                    ]
+
                 except Exception:
                     return True
-
             return False
 
         except Exception as e:
