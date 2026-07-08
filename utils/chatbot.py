@@ -38,17 +38,22 @@ import pandas as pd
 #  Flocks API Client
 # ─────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────
+#  Flocks API Client
+# ─────────────────────────────────────────────────────────────
+
 class FlocksClient:
     """Client for Flocks API."""
-    
+
     def __init__(self, base_url: str = None, api_token: str = None):
         self.base_url = base_url or "http://127.0.0.1:8000"
         self.headers = {}
+
         if api_token:
             self.headers["Authorization"] = f"Bearer {api_token}"
-    
+
     def health_check(self) -> bool:
-    """Check if Flocks API is accessible."""
+        """Check if Flocks API is accessible."""
         try:
             r = requests.get(
                 f"{self.base_url}/",
@@ -57,15 +62,18 @@ class FlocksClient:
             )
 
             if r.status_code == 200:
-                data = r.json()
-                return data.get("status") == "running"
+                try:
+                    data = r.json()
+                    return data.get("status") == "running"
+                except Exception:
+                    return True
 
             return False
 
         except Exception as e:
             print(f"Flocks health check failed: {e}")
             return False
-    
+
     def create_session(self, title: str = None) -> str:
         """Create a new session and return session_id."""
         response = requests.post(
@@ -73,74 +81,97 @@ class FlocksClient:
             json={"title": title} if title else {},
             headers=self.headers
         )
+
         response.raise_for_status()
         return response.json().get("id")
-    
+
     def get_session(self, session_id: str) -> dict:
         """Get session details."""
         response = requests.get(
             f"{self.base_url}/api/session/{session_id}",
             headers=self.headers
         )
+
         response.raise_for_status()
         return response.json()
-    
+
     def get_messages(self, session_id: str) -> list:
         """Get all messages in a session."""
         response = requests.get(
             f"{self.base_url}/api/session/{session_id}/message",
             headers=self.headers
         )
+
         response.raise_for_status()
         return response.json()
-    
-    def send_message(self, session_id: str, message: str, system: str = None) -> dict:
+
+    def send_message(
+        self,
+        session_id: str,
+        message: str,
+        system: str = None
+    ) -> dict:
         """
-        Send a message and get the AI response.
-        Uses SSE streaming for real-time responses.
-        
-        Returns:
-            dict with 'text' (concatenated response) and 'message_id'
+        Send a message and get AI response.
+        Uses SSE streaming.
         """
+
         payload = {
-            "parts": [{"type": "text", "text": message}],
+            "parts": [
+                {
+                    "type": "text",
+                    "text": message
+                }
+            ],
             "noReply": False
         }
+
         if system:
             payload["system"] = system
-        
+
         full_text = ""
         message_id = None
-        
+
         try:
             response = requests.post(
                 f"{self.base_url}/api/session/{session_id}/message",
                 json=payload,
                 headers=self.headers,
                 stream=True,
-                timeout=0  # No timeout for streaming
+                timeout=300
             )
-            
+
             for line in response.iter_lines():
+
                 if line:
                     try:
-                        data = json.loads(line.decode('utf-8'))
-                        
-                        # Handle different event types
-                        if data.get("type") == "text" and data.get("text"):
-                            full_text += data["text"]
+                        data = json.loads(
+                            line.decode("utf-8")
+                        )
+
+                        if data.get("type") == "text":
+                            full_text += data.get("text", "")
+
                         elif data.get("type") == "message_id":
                             message_id = data.get("message_id")
+
                         elif data.get("type") == "finish":
                             break
+
                     except json.JSONDecodeError:
                         continue
-            
+
         except requests.exceptions.Timeout:
-            pass  # Return what we have so far
-        
-        return {"text": full_text, "message_id": message_id}
-    
+            pass
+
+        except Exception as e:
+            full_text = f"Flocks API error: {e}"
+
+        return {
+            "text": full_text,
+            "message_id": message_id
+        }
+
     def delete_session(self, session_id: str) -> bool:
         """Delete a session."""
         try:
@@ -148,10 +179,11 @@ class FlocksClient:
                 f"{self.base_url}/api/session/{session_id}",
                 headers=self.headers
             )
+
             return response.status_code == 200
+
         except Exception:
             return False
-
 
 @st.cache_resource(show_spinner=False)
 def get_flocks_client() -> tuple[FlocksClient, str]:
