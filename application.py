@@ -29,7 +29,14 @@ from utils.page_ai_classifier import page_ai_classifier as _page_ai_clf_raw
 TZ_MY = ZoneInfo("Asia/Kuala_Lumpur")
 def now_my(): return datetime.now(tz=TZ_MY)
 
+from streamlit.runtime.scriptrunner import get_script_run_ctx
 
+ctx = get_script_run_ctx()
+
+if ctx:
+    st.write("Session ID:", ctx.session_id)
+else:
+    st.write("No session found")
 # ══════════════════════════════════════════════════════════════════════════════
 #  SUPABASE — paginated fetch
 # ══════════════════════════════════════════════════════════════════════════════
