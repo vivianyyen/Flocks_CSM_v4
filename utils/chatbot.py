@@ -148,24 +148,32 @@ class FlocksClient:
             )
 
             for line in response.iter_lines():
+                if not line:
+                    continue
 
-                if line:
-                    try:
-                        data = json.loads(
-                            line.decode("utf-8")
-                        )
+                decoded = line.decode("utf-8")
 
-                        if data.get("type") == "text":
-                            full_text += data.get("text", "")
+                # Handle SSE format
+                if decoded.startswith("data:"):
+                    decoded = decoded.replace("data:", "", 1).strip()
 
-                        elif data.get("type") == "message_id":
-                            message_id = data.get("message_id")
+                try:
+                    data = json.loads(decoded)
 
-                        elif data.get("type") == "finish":
-                            break
+                    print("FLOCKS EVENT:", data)
 
-                    except json.JSONDecodeError:
-                        continue
+                    if data.get("type") == "text":
+                        full_text += data.get("text", "")
+
+                    elif data.get("type") == "message_id":
+                        message_id = data.get("message_id")
+
+                    elif data.get("type") == "finish":
+                        break
+
+                except json.JSONDecodeError:
+                    print("Non JSON event:", decoded)
+                    continue
 
         except requests.exceptions.Timeout:
             pass
