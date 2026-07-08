@@ -537,8 +537,9 @@ def chatbot_ui(df: pd.DataFrame):
 
     # ── Initialize Flocks client ───────────────────────────────
     client, status = get_flocks_client()
-    
-    if status == "ok" and not st.session_state.flocks_client_init:
+    st.write("Flocks status:", status)
+    st.write("Flocks client:", client.base_url if client else None)
+    if status == "running" and not st.session_state.flocks_client_init:
         try:
             # Create or get existing Flocks session
             if st.session_state.flocks_session_id:
