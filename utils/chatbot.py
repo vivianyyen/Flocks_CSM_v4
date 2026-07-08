@@ -49,22 +49,22 @@ class FlocksClient:
     
     def health_check(self) -> bool:
     """Check if Flocks API is accessible."""
-    try:
-        r = requests.get(
-            f"{self.base_url}/",
-            headers=self.headers,
-            timeout=5
-        )
+        try:
+            r = requests.get(
+                f"{self.base_url}/",
+                headers=self.headers,
+                timeout=5
+            )
 
-        if r.status_code == 200:
-            data = r.json()
-            return data.get("status") == "running"
+            if r.status_code == 200:
+                data = r.json()
+                return data.get("status") == "running"
 
-        return False
+            return False
 
-    except Exception as e:
-        print(f"Flocks health check failed: {e}")
-        return False
+        except Exception as e:
+            print(f"Flocks health check failed: {e}")
+            return False
     
     def create_session(self, title: str = None) -> str:
         """Create a new session and return session_id."""
