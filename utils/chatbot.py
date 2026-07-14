@@ -1,27 +1,33 @@
 """
-utils/chatbot.py (Flocks Edition)
+utils/chatbot.py (Groq Edition)
 ─────────────────────────────────────────────────────────────────────────────
-Hybrid AI Analyst: Flocks backend + ThreatBook CTI enrichment.
+Hybrid AI Analyst: Groq (llama-3.3-70b-versatile) backend + ThreatBook CTI enrichment.
 
 Flow
 ────
 1. User sends a message.
 2. IOC extractor scans the message for IPs, domains, file hashes, URLs, CVEs.
-3. For each IOC found → silently call the matching ThreatBook API endpoint.
-4. Inject enriched CTI data into Flocks' system prompt.
-5. Flocks generates a clear, analyst-style response backed by real intel.
+3. For each IOC found -> silently call the matching ThreatBook API endpoint.
+4. Inject enriched CTI data into the system prompt.
+5. Groq generates a clear, analyst-style response backed by real intel.
+
+Why Groq (not Flocks)
+----------------------
+Flocks requires a locally-running server (http://127.0.0.1:8000), which is
+never reachable once the app is deployed (e.g. Streamlit Cloud) - that is why
+the chatbot stopped responding. Groq is a hosted cloud API, so it works
+identically locally and in deployment, with no local server required.
 
 Prerequisites
-─────────────
-- Flocks running locally (http://127.0.0.1:8000) or remotely
-- Optional: Flocks API token for remote access (generate with `flocks admin generate-api-token`)
-- ThreatBook API key in .streamlit/secrets.toml
+-------------
+- `groq` package (already in requirements.txt)
+- Groq API key in .streamlit/secrets.toml
+- Optional: ThreatBook API key in .streamlit/secrets.toml
 
 Secrets required (.streamlit/secrets.toml)
-──────────────────────────────────────────
-[flocks]
-api_url = "http://127.0.0.1:8000"  # Change if Flocks is remote
-api_token = ""  # Optional: only needed for remote access
+--------------------------------------------
+[groq]
+api_key = "gsk_..."
 
 [threatbook]
 api_key = "your-threatbook-api-key"
@@ -29,192 +35,56 @@ api_key = "your-threatbook-api-key"
 
 import re
 import json
-import time
 import requests
 import streamlit as st
 import pandas as pd
 
-# ─────────────────────────────────────────────────────────────
-#  Flocks API Client
-# ─────────────────────────────────────────────────────────────
+try:
+    from groq import Groq
+    GROQ_AVAILABLE = True
+except ImportError:
+    GROQ_AVAILABLE = False
+
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 # ─────────────────────────────────────────────────────────────
-#  Flocks API Client
+#  Groq API Client
 # ─────────────────────────────────────────────────────────────
-
-class FlocksClient:
-    """Client for Flocks API."""
-
-    def __init__(self, base_url: str = None, api_token: str = None):
-        self.base_url = base_url or "http://127.0.0.1:8000"
-        self.headers = {}
-
-        if api_token:
-            self.headers["Authorization"] = f"Bearer {api_token}"
-
-    def health_check(self) -> bool:
-        """Check if Flocks API is accessible."""
-        try:
-            r = requests.get(
-                f"{self.base_url}/",
-                headers=self.headers,
-                timeout=5
-            )
-
-            if r.status_code == 200:
-                try:
-                    data = r.json()
-                    status = data.get("status", "").lower()
-
-                    return status in [
-                        "running",
-                        "healthy",
-                        "ok"
-                    ]
-
-                except Exception:
-                    return True
-            return False
-
-        except Exception as e:
-            print(f"Flocks health check failed: {e}")
-            return False
-
-    def create_session(self, title: str = None) -> str:
-        """Create a new session and return session_id."""
-        response = requests.post(
-            f"{self.base_url}/api/session",
-            json={"title": title} if title else {},
-            headers=self.headers
-        )
-
-        response.raise_for_status()
-        return response.json().get("id")
-
-    def get_session(self, session_id: str) -> dict:
-        """Get session details."""
-        response = requests.get(
-            f"{self.base_url}/api/session/{session_id}",
-            headers=self.headers
-        )
-
-        response.raise_for_status()
-        return response.json()
-
-    def get_messages(self, session_id: str) -> list:
-        """Get all messages in a session."""
-        response = requests.get(
-            f"{self.base_url}/api/session/{session_id}/message",
-            headers=self.headers
-        )
-
-        response.raise_for_status()
-        return response.json()
-
-    def send_message(
-        self,
-        session_id: str,
-        message: str,
-        system: str = None
-    ) -> dict:
-        """
-        Send a message and get AI response.
-        Uses SSE streaming.
-        """
-
-        payload = {
-            "parts": [
-                {
-                    "type": "text",
-                    "text": message
-                }
-            ],
-            "noReply": False
-        }
-
-        if system:
-            payload["system"] = system
-
-        full_text = ""
-        message_id = None
-
-        try:
-            response = requests.post(
-                f"{self.base_url}/api/session/{session_id}/message",
-                json=payload,
-                headers=self.headers,
-                stream=True,
-                timeout=300
-            )
-
-            for line in response.iter_lines():
-                if not line:
-                    continue
-
-                decoded = line.decode("utf-8")
-
-                # Handle SSE format
-                if decoded.startswith("data:"):
-                    decoded = decoded.replace("data:", "", 1).strip()
-
-                try:
-                    data = json.loads(decoded)
-
-                    print("FLOCKS EVENT:", data)
-
-                    if data.get("type") == "text":
-                        full_text += data.get("text", "")
-
-                    elif data.get("type") == "message_id":
-                        message_id = data.get("message_id")
-
-                    elif data.get("type") == "finish":
-                        break
-
-                except json.JSONDecodeError:
-                    print("Non JSON event:", decoded)
-                    continue
-
-        except requests.exceptions.Timeout:
-            pass
-
-        except Exception as e:
-            full_text = f"Flocks API error: {e}"
-
-        return {
-            "text": full_text,
-            "message_id": message_id
-        }
-
-    def delete_session(self, session_id: str) -> bool:
-        """Delete a session."""
-        try:
-            response = requests.delete(
-                f"{self.base_url}/api/session/{session_id}",
-                headers=self.headers
-            )
-
-            return response.status_code == 200
-
-        except Exception:
-            return False
 
 @st.cache_resource(show_spinner=False)
-def get_flocks_client() -> tuple[FlocksClient, str]:
-    """Get Flocks client from secrets."""
+def get_groq_client():
+    """Get Groq client from secrets. Returns (client, status)."""
+    if not GROQ_AVAILABLE:
+        return None, "package_missing"
     try:
-        api_url = st.secrets.get("flocks", {}).get("api_url", "http://127.0.0.1:8000")
-        api_token = st.secrets.get("flocks", {}).get("api_token", "")
-        
-        client = FlocksClient(api_url, api_token or None)
-        
-        # Verify connectivity
-        if client.health_check():
-            return client, "ok"
-        else:
-            return client, "not_connected"
+        api_key = st.secrets.get("groq", {}).get("api_key", "")
+        if not api_key:
+            return None, "missing_key"
+        client = Groq(api_key=api_key)
+        return client, "ok"
     except Exception as e:
         return None, f"config_error: {e}"
+
+
+def groq_chat(client, system_prompt: str, history: list, question: str) -> str:
+    """Send a chat completion request to Groq and return the reply text."""
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # Include prior turns for context (skip the just-appended current question)
+    prior_turns = history[:-1] if history and history[-1].get("content") == question else history
+    for m in prior_turns:
+        role = "assistant" if m["role"] == "assistant" else "user"
+        messages.append({"role": role, "content": m["content"]})
+
+    messages.append({"role": "user", "content": question})
+
+    completion = client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=messages,
+        temperature=0.4,
+        max_tokens=1024,
+    )
+    return completion.choices[0].message.content
 
 
 # ─────────────────────────────────────────────────────────────
@@ -468,7 +338,7 @@ def _build_system_prompt(df: pd.DataFrame, cti_block: str = "") -> str:
     lines = [
         "You are a senior cybersecurity and threat intelligence analyst embedded in a live SOC dashboard.",
         "You have access to ThreatBook CTI — a commercial-grade threat intelligence platform.",
-        "You are powered by Flocks AI Native SecOps Platform.",
+        "You are powered by Groq (Llama 3.3 70B).",
         "",
         "RESPONSE FORMAT (follow exactly):",
         "- Write in clear, professional English suitable for a security operations briefing.",
@@ -527,7 +397,7 @@ def _build_system_prompt(df: pd.DataFrame, cti_block: str = "") -> str:
 
 
 # ─────────────────────────────────────────────────────────────
-#  Main UI (adapted for Flocks)
+#  Main UI (Groq-powered)
 # ─────────────────────────────────────────────────────────────
 
 def chatbot_ui(df: pd.DataFrame):
@@ -536,31 +406,11 @@ def chatbot_ui(df: pd.DataFrame):
         st.session_state.chat_history = []
     if "chat_open" not in st.session_state:
         st.session_state.chat_open = False
-    if "flocks_session_id" not in st.session_state:
-        st.session_state.flocks_session_id = None
-    if "flocks_client_init" not in st.session_state:
-        st.session_state.flocks_client_init = False
 
     tb_key_present = bool(_tb_key())
 
-    # ── Initialize Flocks client ───────────────────────────────
-    client, status = get_flocks_client()
-    st.write("Flocks status:", status)
-    st.write("Flocks client:", client.base_url if client else None)
-    if status == "running" and not st.session_state.flocks_client_init:
-        try:
-            # Create or get existing Flocks session
-            if st.session_state.flocks_session_id:
-                try:
-                    client.get_session(st.session_state.flocks_session_id)
-                except Exception:
-                    st.session_state.flocks_session_id = client.create_session("CTI Dashboard Chat")
-            else:
-                st.session_state.flocks_session_id = client.create_session("CTI Dashboard Chat")
-            print("FLOCKS SESSION ID:", st.session_state.flocks_session_id)
-            st.session_state.flocks_client_init = True
-        except Exception as e:
-            status = f"session_error: {e}"
+    # ── Initialize Groq client ───────────────────────────────
+    client, status = get_groq_client()
 
     # ── Global CSS ─────────────────────────────────────────────
     st.markdown("""
@@ -705,14 +555,14 @@ def chatbot_ui(df: pd.DataFrame):
 
     tb_badge_cls  = "gcp-tb-badge" if tb_key_present else "gcp-tb-badge off"
     tb_badge_text = "🟢 ThreatBook Live" if tb_key_present else "⚪ ThreatBook Off"
-    flocks_status = "🟢 Connected" if status == "ok" else f"⚠ {status}"
+    groq_status = "🟢 Connected" if status == "ok" else f"⚠ {status}"
     
     st.markdown(f"""
     <div class="gcp-header">
         <div class="gcp-avatar">🛡️</div>
         <div>
             <div class="gcp-title">CTI Analyst</div>
-            <div class="gcp-sub">Flocks AI · ThreatBook Intelligence · {flocks_status}</div>
+            <div class="gcp-sub">Groq AI · ThreatBook Intelligence · {groq_status}</div>
         </div>
         <span class="{tb_badge_cls}">{tb_badge_text}</span>
     </div>
@@ -725,7 +575,7 @@ def chatbot_ui(df: pd.DataFrame):
         <div class="gc-empty">
             <div class="gc-empty-icon">🛡️</div>
             <strong style="color:#f0f6fc;font-size:14px;">CTI Analyst Ready</strong><br>
-            <span style="color:#8b949e;font-size:12px;">Powered by Flocks AI with ThreatBook enrichment.<br>
+            <span style="color:#8b949e;font-size:12px;">Powered by Groq AI with ThreatBook enrichment.<br>
             Ask about incidents, threat trends, or paste IOCs.</span><br><br>
             <span style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:#3fb950;">
               IP · Domain · Hash · CVE · URL
@@ -733,7 +583,7 @@ def chatbot_ui(df: pd.DataFrame):
             {"" if tb_key_present else
              "<br><br><span style='color:#f85149;font-size:11px;'>⚠ ThreatBook key not configured</span>"}
             {"" if status == "ok" else
-             f"<br><br><span style='color:#f85149;font-size:11px;'>⚠ Flocks: {status}</span>"}
+             f"<br><br><span style='color:#f85149;font-size:11px;'>⚠ Groq: {status}</span>"}
         </div>
         """, unsafe_allow_html=True)
     else:
@@ -814,28 +664,30 @@ def chatbot_ui(df: pd.DataFrame):
         with st.spinner("🔍 Enriching with ThreatBook CTI…"):
             cti_block = enrich_with_threatbook(iocs)
 
-    # ── Step 3: Call Flocks ────────────────────────────────────
-    if status != "ok":
-        answer = f"❌ Flocks not available: {status}\n\nPlease ensure Flocks is running at http://127.0.0.1:8000"
+    # ── Step 3: Call Groq ────────────────────────────────────
+    if status == "package_missing":
+        answer = "❌ `groq` package not installed. Ensure `requirements.txt` has `groq`."
+    elif status == "missing_key":
+        answer = "❌ Groq API key missing. Add `[groq]` with `api_key` to Streamlit secrets."
+    elif status != "ok":
+        answer = f"❌ Groq unavailable: {status}"
     else:
         try:
             system_prompt = _build_system_prompt(df, cti_block)
-            
-            with st.spinner("🛡️ Analysing with Flocks…"):
-                # Combine user message with system context
-                full_message = f"{system_prompt}\n\n---\n\nUser question: {question}"
-                
-                result = client.send_message(
-                    st.session_state.flocks_session_id,
-                    full_message
+
+            with st.spinner("🛡️ Analysing with Groq…"):
+                answer = groq_chat(
+                    client,
+                    system_prompt,
+                    st.session_state.chat_history,
+                    question,
                 )
-                answer = result.get("text", "")
-                
+
                 if not answer:
-                    answer = "⚠ Received empty response from Flocks. Please try again."
-                    
+                    answer = "⚠ Received empty response from Groq. Please try again."
+
         except Exception as e:
-            answer = f"❌ Flocks error: {e}"
+            answer = f"❌ Groq error: {e}"
 
     st.session_state.chat_history.append({
         "role": "assistant",
